@@ -7,25 +7,19 @@ import glob
 class DataProcessor:
     def __init__(self, path: str):
         self.path = Path(path)
-        self.particles_df = None
-        self.tracks_df = None
-        self.tracker_hits_df = None
-        self.calo_hits_df = None
+        self.files = {}
         self.load_data()
 
     def load_data(self):
         """
-        Scan the directory and load the necessary files.
+        Scan the directory and find the necessary files.
         """
         if not self.path.exists():
             raise FileNotFoundError(f"Path {self.path} does not exist")
 
         # Define patterns to search for
-        # We look for files that either have the key in the filename OR are in a directory with the key
         keys = ['particles', 'tracks', 'tracker_hits', 'calo_hits']
         
-        found_files = {}
-
         if self.path.is_file():
             print(f"Warning: {self.path} is a file. Expecting a directory containing the dataset components.")
             return
@@ -44,97 +38,84 @@ class DataProcessor:
             
             if matches:
                 # Take the first match
-                found_files[key] = matches[0]
+                self.files[key] = matches[0]
                 print(f"Found {key}: {matches[0]}")
             else:
                 print(f"Warning: Could not find file for {key}")
 
-        # Load DataFrames
-        if 'particles' in found_files:
-            self.particles_df = self._load_parquet(found_files['particles'])
-        
-        if 'tracks' in found_files:
-            self.tracks_df = self._load_parquet(found_files['tracks'])
-            
-        if 'tracker_hits' in found_files:
-            self.tracker_hits_df = self._load_parquet(found_files['tracker_hits'])
-            if self.tracker_hits_df is not None:
-                 # Pre-process tracker hits (create HIT_ID)
-                self.tracker_hits_df = self.tracker_hits_df.reset_index(drop=True)
-                self.tracker_hits_df = self.tracker_hits_df.reset_index().rename(columns={'index': 'HIT_ID'})
-                self.tracker_hits_df = self.tracker_hits_df.apply(pd.to_numeric, errors='coerce')
-                self.tracker_hits_df = self.tracker_hits_df.set_index('HIT_ID')
-
-        if 'calo_hits' in found_files:
-            self.calo_hits_df = self._load_parquet(found_files['calo_hits'])
-            if self.calo_hits_df is not None:
-                # Pre-process calo hits
-                self.calo_hits_df = self.calo_hits_df.reset_index(drop=True)
-                self.calo_hits_df = self.calo_hits_df.reset_index().rename(columns={'index': 'HIT_ID'})
-                self.calo_hits_df = self.calo_hits_df.explode(['contrib_particle_ids', 'contrib_energies', 'contrib_times'])
-                self.calo_hits_df = self.calo_hits_df.set_index('HIT_ID')
-                all_numeric_cols = ['cell_id', 'total_energy', 'x', 'y', 'z','contrib_particle_ids', 'contrib_energies', 'contrib_times']
-                for col in all_numeric_cols:
-                    if col in self.calo_hits_df.columns:
-                        self.calo_hits_df[col] = pd.to_numeric(self.calo_hits_df[col], errors='coerce')
-
-
-    def _load_parquet(self, path):
+    def _load_parquet_event(self, path, event_id):
+        """
+        Load data for a specific event from a parquet file using filters.
+        """
         try:
-            df = pd.read_parquet(path)
+            # Use filters to load only the specific event
+            df = pd.read_parquet(path, filters=[('event_id', '==', event_id)])
+            
             # Explode common columns if they exist
-            explode_cols = [col for col in df.columns if col != 'event_id']
-            # Check if columns are list-like before exploding? 
-            # The reference code blindly explodes all except event_id.
-            # But read_parquet might already handle some of this or return lists.
-            # Let's follow reference logic but be careful.
-            
-            # Actually, read_parquet usually returns lists for repeated fields.
-            # The reference code:
-            # df = df.explode([col for col in df.columns if col != 'event_id'])
-            # This implies that for a single row (event), all other columns are lists of the same length.
-            
             df = df.explode([col for col in df.columns if col != 'event_id'])
             
-            # Specific handling for tracks which has nested lists sometimes?
-            # Reference: tracks = tracks.explode('hit_ids')
             if 'hit_ids' in df.columns:
                  df = df.explode('hit_ids')
             
-            # Reference: apply(pd.to_numeric)
-            # This might be slow for large DFs, but let's stick to it for now or optimize later.
-            # We will do type conversion on demand or for specific columns to be safe.
-            
             return df.reset_index(drop=True)
         except Exception as e:
-            print(f"Error loading {path}: {e}")
-            return None
+            print(f"Error loading event {event_id} from {path}: {e}")
+            return pd.DataFrame()
 
     def get_event_list(self):
         """
         Return a list of available events.
         """
-        if self.particles_df is not None:
-            events = self.particles_df['event_id'].unique().tolist()
-            return {"events": sorted(events)}
+        if 'particles' in self.files:
+            try:
+                # Read only the event_id column to be fast
+                df = pd.read_parquet(self.files['particles'], columns=['event_id'])
+                events = df['event_id'].unique().tolist()
+                return {"events": sorted(events)}
+            except Exception as e:
+                print(f"Error reading event list: {e}")
+                return {"events": []}
         return {"events": []}
 
     def process_event(self, event_id: str):
         """
-        Load and process data for a specific event.
+        Load and process data for a specific event on demand.
         """
         try:
             n = int(event_id)
         except ValueError:
             raise ValueError(f"Invalid event ID: {event_id}")
 
-        if self.particles_df is None:
+        if 'particles' not in self.files:
             return {"error": "No particle data found"}
 
-        # Filter for event
-        particles = self.particles_df[self.particles_df['event_id'] == n].copy()
-        tracker_hits = self.tracker_hits_df[self.tracker_hits_df['event_id'] == n].copy() if self.tracker_hits_df is not None else pd.DataFrame()
-        calo_hits = self.calo_hits_df[self.calo_hits_df['event_id'] == n].copy() if self.calo_hits_df is not None else pd.DataFrame()
+        # Load data for this event ONLY
+        particles = self._load_parquet_event(self.files['particles'], n)
+        
+        tracker_hits = pd.DataFrame()
+        if 'tracker_hits' in self.files:
+            tracker_hits = self._load_parquet_event(self.files['tracker_hits'], n)
+            if not tracker_hits.empty:
+                # Pre-process tracker hits (create HIT_ID) - doing this per event now
+                tracker_hits = tracker_hits.reset_index(drop=True)
+                tracker_hits = tracker_hits.reset_index().rename(columns={'index': 'HIT_ID'})
+                tracker_hits = tracker_hits.apply(pd.to_numeric, errors='coerce')
+                # tracker_hits = tracker_hits.set_index('HIT_ID') # Not strictly needed for logic below, but good for consistency if we used it
+
+        calo_hits = pd.DataFrame()
+        if 'calo_hits' in self.files:
+            calo_hits = self._load_parquet_event(self.files['calo_hits'], n)
+            if not calo_hits.empty:
+                # Pre-process calo hits
+                calo_hits = calo_hits.reset_index(drop=True)
+                calo_hits = calo_hits.reset_index().rename(columns={'index': 'HIT_ID'})
+                calo_hits = calo_hits.explode(['contrib_particle_ids', 'contrib_energies', 'contrib_times'])
+                # calo_hits = calo_hits.set_index('HIT_ID')
+                
+                all_numeric_cols = ['cell_id', 'total_energy', 'x', 'y', 'z','contrib_particle_ids', 'contrib_energies', 'contrib_times']
+                for col in all_numeric_cols:
+                    if col in calo_hits.columns:
+                        calo_hits[col] = pd.to_numeric(calo_hits[col], errors='coerce')
 
         # 2. Apply static cuts
         if 'vx' in particles.columns and 'vy' in particles.columns:
@@ -146,10 +127,6 @@ class DataProcessor:
             # Ensure numeric
             particles['px'] = pd.to_numeric(particles['px'], errors='coerce')
             particles['py'] = pd.to_numeric(particles['py'], errors='coerce')
-            
-            # Debug
-            # print(f"Particles dtypes:\n{particles.dtypes}")
-            # print(f"PX head: {particles['px'].head()}")
             
             particles['pT'] = np.sqrt(particles['px']**2 + particles['py']**2)
         else:
@@ -211,7 +188,7 @@ class DataProcessor:
         # 5. Process Calo Hits
         event_calo_hits = []
         if not calo_hits.empty and 'contrib_particle_ids' in calo_hits.columns:
-            # Note: calo_hits is already exploded in load_data
+            # Note: calo_hits is already exploded in load_data (now in process_event)
             
             calo_hits['contrib_particle_ids'] = pd.to_numeric(calo_hits['contrib_particle_ids'], errors='coerce')
             calo_hits = calo_hits.dropna(subset=['contrib_particle_ids'])
