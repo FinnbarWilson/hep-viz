@@ -164,6 +164,8 @@ class DataProcessor:
 
         # 4.1 Process ALL Tracker Hits
         all_event_tracker_hits = []
+        has_volumes = False
+        
         if not tracker_hits.empty:
             filtered_tracker_hits = tracker_hits[tracker_hits["particle_id"].isin(particles_id)].copy()
             
@@ -171,7 +173,15 @@ class DataProcessor:
             filtered_tracker_hits['pdg_id'] = filtered_tracker_hits['particle_id'].map(pdg_map)
             filtered_tracker_hits = filtered_tracker_hits.dropna(subset=['pT', 'pdg_id'])
             
-            all_event_tracker_hits = filtered_tracker_hits[['x', 'y', 'z', 'pT', 'pdg_id', 'particle_id']].to_dict(orient='records')
+            # Check for volume_id
+            cols_to_keep = ['x', 'y', 'z', 'pT', 'pdg_id', 'particle_id']
+            if 'volume_id' in filtered_tracker_hits.columns:
+                cols_to_keep.append('volume_id')
+                has_volumes = True
+                # Ensure int
+                filtered_tracker_hits['volume_id'] = pd.to_numeric(filtered_tracker_hits['volume_id'], errors='coerce').fillna(-1).astype(int)
+            
+            all_event_tracker_hits = filtered_tracker_hits[cols_to_keep].to_dict(orient='records')
 
         # 4.2 Process Tracks
         event_tracks = []
@@ -181,7 +191,14 @@ class DataProcessor:
             tracker_hits_for_tracks = tracker_hits_for_tracks.sort_values(by=['particle_id', 'r'])
 
             for particle_id, group_of_hits in tracker_hits_for_tracks.groupby('particle_id'):
-                points = group_of_hits[['x', 'y', 'z']].to_dict(orient='records')
+                # Include volume_id in points if available
+                cols = ['x', 'y', 'z']
+                if 'volume_id' in group_of_hits.columns:
+                    cols.append('volume_id')
+                    # Ensure volume_id is int
+                    group_of_hits['volume_id'] = pd.to_numeric(group_of_hits['volume_id'], errors='coerce').fillna(-1).astype(int)
+                
+                points = group_of_hits[cols].to_dict(orient='records')
                 
                 if len(points) > 1:
                     event_tracks.append({
@@ -225,6 +242,6 @@ class DataProcessor:
             'metadata': {
                 "has_calo": bool(event_calo_hits),
                 "has_pdg": True, # Assumed for now
-                "has_volumes": False
+                "has_volumes": has_volumes
             }
         }

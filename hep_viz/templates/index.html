@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -10,8 +11,10 @@
             margin: 0;
             background-color: #111;
             color: #eee;
-            overflow: hidden; /* Hide scrollbars */
+            overflow: hidden;
+            /* Hide scrollbars */
         }
+
         #canvas-container {
             width: 100vw;
             height: 100vh;
@@ -19,6 +22,7 @@
             top: 0;
             left: 0;
         }
+
         #ui-container {
             position: absolute;
             top: 20px;
@@ -27,21 +31,27 @@
             background-color: rgba(0, 0, 0, 0.7);
             padding: 15px;
             border-radius: 12px;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
             border: 1px solid rgba(255, 255, 255, 0.2);
             max-width: 280px;
-            max-height: 90vh; /* Prevent it from going off screen */
-            overflow-y: auto; /* Scroll if menu gets too tall */
+            max-height: 90vh;
+            /* Prevent it from going off screen */
+            overflow-y: auto;
+            /* Scroll if menu gets too tall */
         }
-        h2, h3 {
+
+        h2,
+        h3 {
             margin: 0 0 10px 0;
             padding-bottom: 5px;
             border-bottom: 1px solid #444;
         }
+
         h3 {
             font-size: 1.1em;
             margin-top: 15px;
         }
+
         button {
             font-size: 16px;
             padding: 8px 15px;
@@ -53,19 +63,23 @@
             cursor: pointer;
             transition: background-color 0.2s;
         }
+
         button:hover {
             background-color: #555;
         }
+
         button:disabled {
             background-color: #222;
             color: #555;
             cursor: not-allowed;
         }
+
         #event-display {
             font-size: 24px;
             font-weight: bold;
             margin-right: 10px;
         }
+
         #info-box {
             position: absolute;
             bottom: 20px;
@@ -74,40 +88,48 @@
             font-size: 14px;
             color: #aaa;
         }
+
         .ui-section {
             margin-top: 15px;
             border-top: 1px solid #444;
             padding-top: 10px;
         }
+
         .ui-section h4 {
             margin: 0 0 8px 0;
             display: flex;
             justify-content: space-between;
-            cursor: pointer; /* Make headers clickable */
+            cursor: pointer;
+            /* Make headers clickable */
         }
+
         .ui-section h4:hover {
             color: #fff;
         }
+
         label {
             display: block;
             margin: 5px 0;
             font-size: 14px;
             cursor: pointer;
         }
+
         input[type="checkbox"] {
             margin-right: 8px;
             vertical-align: middle;
         }
+
         input[type="range"] {
             width: 100%;
             margin-top: 2px;
             margin-bottom: 8px;
         }
+
         #toggle-menu-btn {
             float: right;
             font-size: 20px;
             font-weight: bold;
-            font-family: monospace; 
+            font-family: monospace;
             background: transparent;
             border: none;
             color: #eee;
@@ -116,6 +138,7 @@
             margin-top: -4px;
             border-radius: 5px;
         }
+
         #toggle-menu-btn:hover {
             background: transparent;
         }
@@ -136,21 +159,25 @@
         }
 
         .config-content {
-            display: none; 
+            display: none;
             padding-left: 5px;
         }
+
         .config-content.open {
             display: block;
         }
+
         .toggle-icon {
             font-family: monospace;
             font-weight: bold;
         }
+
         .hidden {
             display: none !important;
         }
     </style>
 </head>
+
 <body>
 
     <div id="canvas-container"></div>
@@ -158,17 +185,29 @@
     <div id="ui-container">
         <h2>hep-viz <button id="toggle-menu-btn">[–]</button></h2>
 
-        <div id="ui-content"> 
-        
-            <div>
-                <span id="event-display">Event: -</span>
-                <button id="prev-btn" disabled>&lt;</button>
-                <button id="next-btn" disabled>&gt;</button>
+        <div id="ui-content">
+
+            <div
+                style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 15px; background: #222; padding: 8px; border-radius: 8px;">
+                <div style="display: flex; align-items: center;">
+                    <span style="font-weight: bold; margin-right: 8px;">Event:</span>
+                    <select id="event-select"
+                        style="padding: 4px; border-radius: 4px; background: #444; color: #eee; border: 1px solid #666; width: 70px;">
+                        <!-- Populated via JS -->
+                    </select>
+                </div>
+                <div>
+                    <button id="prev-btn" disabled style="padding: 4px 10px;">&lt;</button>
+                    <button id="next-btn" disabled style="padding: 4px 10px;">&gt;</button>
+                </div>
             </div>
-            
+
+            <!-- Hidden text display, kept for fallback logic but hidden -->
+            <span id="event-display" style="display: none;">Event: -</span>
+
             <h3 id="track-count">Tracks: 0</h3>
             <h3 id="calo-count">Calo Hits: 0</h3>
-            <h3 id="raw-hit-count">Raw Hits: 0</h3> 
+            <h3 id="raw-hit-count">Raw Hits: 0</h3>
 
             <div class="ui-section">
                 <h4>Display Options</h4>
@@ -176,36 +215,52 @@
                 <label id="lbl-calo"><input type="checkbox" id="show-calo-check" checked> Show Calorimeter</label>
                 <label id="lbl-raw"><input type="checkbox" id="show-raw-hits-check"> Show Raw Hits</label>
             </div>
-    
+
             <div class="ui-section">
                 <h4>Filters</h4>
                 <label for="pt-slider">pT Cut: <span id="pt-value">0.5</span> GeV</label>
                 <input type="range" id="pt-slider" min="0" max="10" step="0.1" value="0.5">
 
                 <div id="pdg-container">
-                    <label for="pdg-id-select" style="margin-top: 5px;">PDG ID:</label> 
+                    <label for="pdg-id-select" style="margin-top: 5px;">PDG ID:</label>
                     <select id="pdg-id-select">
                         <option value="all">All Particles</option>
                     </select>
+                </div>
+
+                <div id="volume-container" class="hidden" style="margin-top: 10px;">
+                    <label style="font-weight: bold;">Volumes:</label>
+                    <label><input type="checkbox" id="vol-select-all" checked> Select All</label>
+                    <div id="volume-list"
+                        style="max-height: 100px; overflow-y: auto; border: 1px solid #444; padding: 5px; margin-top: 5px;">
+                        <!-- Populated via JS -->
+                    </div>
                 </div>
             </div>
 
             <div class="ui-section">
                 <h4 id="config-header">Plot Configuration <span id="config-icon" class="toggle-icon">[+]</span></h4>
-                
+
                 <div id="config-content" class="config-content">
                     <label>Track Thickness: <span id="val-thick">3</span></label>
                     <input type="range" id="cfg-thickness" min="1" max="10" step="0.5" value="3">
-                    
+
                     <label id="lbl-cfg-calo">Calo Scale: <span id="val-calo">5000</span></label>
                     <input type="range" id="cfg-calo" min="100" max="20000" step="100" value="5000">
-                    
+
+                    <label id="lbl-cfg-calo-mode" style="margin-top: 5px;">Calo Scale Mode:</label>
+                    <select id="cfg-calo-mode"
+                        style="width: 100%; margin-bottom: 10px; background: #333; color: #eee; border: 1px solid #555; padding: 2px;">
+                        <option value="log">Logarithmic</option>
+                        <option value="linear">Linear</option>
+                    </select>
+
                     <label>Hit Radius: <span id="val-radius">8</span></label>
                     <input type="range" id="cfg-radius" min="1" max="20" step="0.5" value="8">
                 </div>
             </div>
 
-        </div> 
+        </div>
     </div>
 
     <div id="info-box">
@@ -220,9 +275,9 @@
         let eventData = {};
         let currentEventIndex = 0;
         let availableEvents = [];
-        
+
         let tracksGroup = new THREE.Group();
-        let caloGroup = new THREE.Group(); 
+        let caloGroup = new THREE.Group();
         let rawHitsGroup = new THREE.Group();
 
         const colors = [
@@ -239,25 +294,25 @@
         let RAW_HIT_RADIUS = 8;         // Default hit radius
 
         // Geometries
-        const caloGeometry = new THREE.BoxGeometry(40, 40, 40); 
+        const caloGeometry = new THREE.BoxGeometry(40, 40, 40);
         // Create hit geometry with radius 1, we will .scale it later based on config
-        const rawHitGeometry = new THREE.SphereGeometry(1, 8, 6); 
+        const rawHitGeometry = new THREE.SphereGeometry(1, 8, 6);
 
         // --- DOM Elements ---
         const eventDisplay = document.getElementById('event-display');
         const trackCountDisplay = document.getElementById('track-count');
         const caloCountDisplay = document.getElementById('calo-count');
-        const rawHitCountDisplay = document.getElementById('raw-hit-count'); 
+        const rawHitCountDisplay = document.getElementById('raw-hit-count');
         const prevBtn = document.getElementById('prev-btn');
         const nextBtn = document.getElementById('next-btn');
-        
+
         // Main Controls
         const showTracksCheck = document.getElementById('show-tracks-check');
         const showCaloCheck = document.getElementById('show-calo-check');
-        const showRawHitsCheck = document.getElementById('show-raw-hits-check'); 
+        const showRawHitsCheck = document.getElementById('show-raw-hits-check');
         const ptSlider = document.getElementById('pt-slider');
         const ptValueDisplay = document.getElementById('pt-value');
-        const pdgIdSelect = document.getElementById('pdg-id-select'); 
+        const pdgIdSelect = document.getElementById('pdg-id-select');
         const uiContainer = document.getElementById('ui-container');
         const toggleMenuBtn = document.getElementById('toggle-menu-btn');
 
@@ -265,7 +320,7 @@
         const configHeader = document.getElementById('config-header');
         const configContent = document.getElementById('config-content');
         const configIcon = document.getElementById('config-icon');
-        
+
         // Config Inputs
         const cfgThickness = document.getElementById('cfg-thickness');
         const cfgCalo = document.getElementById('cfg-calo');
@@ -284,14 +339,14 @@
             scene = new THREE.Scene();
             camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 50000);
             camera.position.set(2000, 2000, 2000);
-            
+
             const container = document.getElementById('canvas-container');
             renderer = new THREE.WebGLRenderer({ antialias: true });
             renderer.setSize(window.innerWidth, window.innerHeight);
             renderer.setPixelRatio(window.devicePixelRatio);
             renderer.setClearColor(0x111111);
             container.appendChild(renderer.domElement);
-            
+
             controls = new THREE.OrbitControls(camera, renderer.domElement);
             controls.enableDamping = true;
 
@@ -302,11 +357,11 @@
 
             scene.add(new THREE.AxesHelper(5000));
             scene.add(new THREE.GridHelper(10000, 20, 0x555555, 0x333333));
-            
+
             scene.add(tracksGroup);
             scene.add(caloGroup);
-            scene.add(rawHitsGroup); 
-            
+            scene.add(rawHitsGroup);
+
             window.addEventListener('resize', onWindowResize, false);
             animate();
         }
@@ -329,6 +384,17 @@
                 if (!response.ok) throw new Error('Failed to fetch event list');
                 const data = await response.json();
                 availableEvents = data.events;
+
+                // Populate Dropdown
+                const eventSelect = document.getElementById('event-select');
+                eventSelect.innerHTML = '';
+                availableEvents.forEach(id => {
+                    const opt = document.createElement('option');
+                    opt.value = id;
+                    opt.innerText = id;
+                    eventSelect.appendChild(opt);
+                });
+
                 if (availableEvents.length > 0) {
                     currentEventIndex = 0;
                     loadEvent(availableEvents[currentEventIndex]);
@@ -343,11 +409,11 @@
 
         async function loadEvent(eventId) {
             try {
-                eventDisplay.innerText = `Loading Event ${eventId}...`;
+                // eventDisplay.innerText = `Loading Event ${eventId}...`; // Don't overwrite dropdown
                 const response = await fetch(`/api/event/${eventId}`);
                 if (!response.ok) throw new Error(`Failed to load event ${eventId}`);
                 eventData = await response.json();
-                
+
                 // Update UI based on metadata
                 if (eventData.metadata) {
                     if (!eventData.metadata.has_calo) {
@@ -361,16 +427,25 @@
                         cfgCalo.classList.remove('hidden');
                         showCaloCheck.checked = true;
                     }
-                    
+
                     if (!eventData.metadata.has_pdg) {
                         pdgContainer.classList.add('hidden');
                     } else {
                         pdgContainer.classList.remove('hidden');
                     }
+
+                    // Volume Metadata
+                    const volContainer = document.getElementById('volume-container');
+                    if (eventData.metadata.has_volumes) {
+                        volContainer.classList.remove('hidden');
+                        populateVolumeList();
+                    } else {
+                        volContainer.classList.add('hidden');
+                    }
                 }
 
-                populatePdgDropdown(); 
-                drawEvent(); 
+                populatePdgDropdown();
+                drawEvent();
                 updateUI();
             } catch (error) {
                 console.error(error);
@@ -379,14 +454,43 @@
             }
         }
 
+        function populateVolumeList() {
+            const volList = document.getElementById('volume-list');
+            volList.innerHTML = '';
+            const volumes = new Set();
+
+            if (eventData.all_tracker_hits) {
+                eventData.all_tracker_hits.forEach(h => {
+                    if (h.volume_id !== undefined) volumes.add(h.volume_id);
+                });
+            }
+
+            const sortedVols = Array.from(volumes).sort((a, b) => a - b);
+            sortedVols.forEach(vol => {
+                const div = document.createElement('div');
+                const cb = document.createElement('input');
+                cb.type = 'checkbox';
+                cb.className = 'vol-checkbox';
+                cb.value = vol;
+                cb.checked = true;
+                cb.addEventListener('change', () => drawEvent());
+
+                const lbl = document.createElement('label');
+                lbl.innerText = ` Vol ${vol}`;
+                lbl.prepend(cb);
+                div.appendChild(lbl);
+                volList.appendChild(div);
+            });
+        }
+
         function populatePdgDropdown() {
             const allPdgIds = new Set();
             if (eventData.tracks) eventData.tracks.forEach(t => allPdgIds.add(t.pdg_id));
             if (eventData.calo_hits) eventData.calo_hits.forEach(c => allPdgIds.add(c.pdg_id));
             if (eventData.all_tracker_hits) eventData.all_tracker_hits.forEach(h => allPdgIds.add(h.pdg_id));
-            
+
             const sorted = Array.from(allPdgIds).sort((a, b) => a - b);
-            pdgIdSelect.innerHTML = '<option value="all">All Particles</option>'; 
+            pdgIdSelect.innerHTML = '<option value="all">All Particles</option>';
             sorted.forEach(id => {
                 const opt = document.createElement('option');
                 opt.value = id; opt.innerText = id;
@@ -396,36 +500,52 @@
 
         function drawEvent() {
             const ptCut = parseFloat(ptSlider.value);
-            const selectedPdgId = pdgIdSelect.value === 'all' ? null : parseInt(pdgIdSelect.value); 
+            const selectedPdgId = pdgIdSelect.value === 'all' ? null : parseInt(pdgIdSelect.value);
             const showTracks = showTracksCheck.checked;
             const showCalo = showCaloCheck.checked;
-            const showRawHits = showRawHitsCheck.checked; 
+            const showRawHits = showRawHitsCheck.checked;
+
+            // Get selected volumes
+            const selectedVolumes = new Set();
+            document.querySelectorAll('.vol-checkbox:checked').forEach(cb => selectedVolumes.add(parseInt(cb.value)));
+            const hasVolumeFilter = !document.getElementById('volume-container').classList.contains('hidden');
 
             clearGroup(tracksGroup);
             clearGroup(caloGroup);
             clearGroup(rawHitsGroup);
-            
+
             if (!eventData.tracks) { // Safety check
                 trackCountDisplay.innerText = "Tracks: 0";
                 caloCountDisplay.innerText = "Calo Hits: 0";
-                rawHitCountDisplay.innerText = "Raw Hits: 0"; 
+                rawHitCountDisplay.innerText = "Raw Hits: 0";
                 return;
             }
 
-            const filterFunction = (item) => item.pT >= ptCut && (selectedPdgId === null || item.pdg_id === selectedPdgId);
+            const filterFunction = (item) => {
+                // PT & PDG Filter
+                if (item.pT < ptCut) return false;
+                if (selectedPdgId !== null && item.pdg_id !== selectedPdgId) return false;
+
+                // Volume Filter (Only for items with volume_id, usually raw hits)
+                if (hasVolumeFilter && item.volume_id !== undefined) {
+                    if (!selectedVolumes.has(item.volume_id)) return false;
+                }
+
+                return true;
+            };
 
             const fTracks = eventData.tracks ? eventData.tracks.filter(filterFunction) : [];
             const fCalo = eventData.calo_hits ? eventData.calo_hits.filter(filterFunction) : [];
             const fRawHits = eventData.all_tracker_hits ? eventData.all_tracker_hits.filter(filterFunction) : [];
-            
+
             trackCountDisplay.innerText = `Tracks: ${fTracks.length} / ${eventData.tracks ? eventData.tracks.length : 0}`;
             caloCountDisplay.innerText = `Calo Hits: ${fCalo.length} / ${eventData.calo_hits ? eventData.calo_hits.length : 0}`;
-            rawHitCountDisplay.innerText = `Raw Hits: ${fRawHits.length} / ${eventData.all_tracker_hits ? eventData.all_tracker_hits.length : 0}`; 
+            rawHitCountDisplay.innerText = `Raw Hits: ${fRawHits.length} / ${eventData.all_tracker_hits ? eventData.all_tracker_hits.length : 0}`;
 
             const uniqueParticleIds = new Set();
             fTracks.forEach(t => uniqueParticleIds.add(t.particle_id));
             fCalo.forEach(c => uniqueParticleIds.add(c.particle_id));
-            fRawHits.forEach(h => uniqueParticleIds.add(h.particle_id)); 
+            fRawHits.forEach(h => uniqueParticleIds.add(h.particle_id));
 
             const particleColorMap = new Map();
             let colorIndex = 0;
@@ -438,29 +558,72 @@
             };
             uniqueParticleIds.forEach(id => getColor(id));
 
+            // Helper function for drawing track segments
+            const drawTrackSegment = (points, particleId) => {
+                const curve = new THREE.CatmullRomCurve3(points);
+                // Adjust segments based on length to avoid artifacts
+                const segments = Math.max(4, points.length * 6);
+                const geometry = new THREE.TubeGeometry(curve, segments, TRACK_THICKNESS, 8, false);
+                const color = getColor(particleId);
+                const mesh = new THREE.Mesh(geometry, new THREE.MeshBasicMaterial({ color: color }));
+                tracksGroup.add(mesh);
+            };
+
             // F. Draw Tracks (TubeGeometry)
             if (showTracks) {
                 fTracks.forEach((track) => {
-                    const points = track.points.map(p => new THREE.Vector3(p.x, p.y, p.z));
-                    if (points.length < 2) return;
-                    const curve = new THREE.CatmullRomCurve3(points);
-                    // Use the Dynamic Variable TRACK_THICKNESS
-                    const geometry = new THREE.TubeGeometry(curve, 64, TRACK_THICKNESS, 8, false);
-                    const color = getColor(track.particle_id);
-                    const mesh = new THREE.Mesh(geometry, new THREE.MeshBasicMaterial({ color: color }));
-                    tracksGroup.add(mesh);
+                    // If volume filter is active, we need to split track into segments
+                    if (hasVolumeFilter && track.points.length > 0 && track.points[0].volume_id !== undefined) {
+                        let currentSegment = [];
+
+                        for (let i = 0; i < track.points.length; i++) {
+                            const p = track.points[i];
+                            // Check if point is in selected volume
+                            if (selectedVolumes.has(p.volume_id)) {
+                                currentSegment.push(new THREE.Vector3(p.x, p.y, p.z));
+                            } else {
+                                // End of segment
+                                if (currentSegment.length >= 2) {
+                                    drawTrackSegment(currentSegment, track.particle_id);
+                                }
+                                currentSegment = [];
+                            }
+                        }
+                        // Draw last segment
+                        if (currentSegment.length >= 2) {
+                            drawTrackSegment(currentSegment, track.particle_id);
+                        }
+                    } else {
+                        // Draw full track (no volume filter or no volume data)
+                        const points = track.points.map(p => new THREE.Vector3(p.x, p.y, p.z));
+                        if (points.length >= 2) {
+                            drawTrackSegment(points, track.particle_id);
+                        }
+                    }
                 });
             }
-            
-            // G. Draw Calo Hits 
+
+            // G. Draw Calo Hits
             if (showCalo) {
+                const scaleMode = document.getElementById('cfg-calo-mode').value;
                 fCalo.forEach((hit) => {
                     const mat = new THREE.MeshBasicMaterial({ color: getColor(hit.particle_id), opacity: 0.7, transparent: true });
                     const mesh = new THREE.Mesh(caloGeometry, mat);
                     mesh.position.set(hit.x, hit.y, hit.z);
-                    
+
                     // Use Dynamic Variable CALO_ENERGY_SCALE
-                    const scale = Math.max(0.1, Math.log10(1 + hit.energy * CALO_ENERGY_SCALE));
+                    let scale;
+                    if (scaleMode === 'linear') {
+                        // Linear scaling: base scale + energy * factor
+                        // Adjust factor to be reasonable. CALO_ENERGY_SCALE is 100-20000.
+                        // Energy is typically small (GeV).
+                        // Increased scale factor by 10x as requested
+                        scale = Math.max(0.1, hit.energy * (CALO_ENERGY_SCALE / 50.0));
+                    } else {
+                        // Log scaling (Default)
+                        scale = Math.max(0.1, Math.log10(1 + hit.energy * CALO_ENERGY_SCALE));
+                    }
+
                     mesh.scale.set(scale, scale, scale);
                     caloGroup.add(mesh);
                 });
@@ -477,41 +640,65 @@
                 });
             }
         }
-        
+
         function clearGroup(group) {
-            while(group.children.length > 0){ 
+            while (group.children.length > 0) {
                 const obj = group.children[0];
                 group.remove(obj);
                 if (obj.geometry) obj.geometry.dispose();
                 if (obj.material) obj.material.dispose();
             }
         }
-        
+
         function updateUI() {
             const eventId = availableEvents[currentEventIndex];
-            eventDisplay.innerText = `Event: ${eventId}`;
+            eventDisplay.innerText = `Event: ${eventId}`; // Fallback
+
+            // Update Select
+            const eventSelect = document.getElementById('event-select');
+            eventSelect.value = eventId;
+
             prevBtn.disabled = (currentEventIndex === 0);
             nextBtn.disabled = (currentEventIndex === availableEvents.length - 1);
         }
-        
+
         // --- EVENT LISTENERS ---
-        
-        prevBtn.addEventListener('click', () => { 
-            if(currentEventIndex > 0) {
-                currentEventIndex--; 
+
+        prevBtn.addEventListener('click', () => {
+            if (currentEventIndex > 0) {
+                currentEventIndex--;
                 loadEvent(availableEvents[currentEventIndex]);
-            } 
+            }
         });
-        nextBtn.addEventListener('click', () => { 
-            if(currentEventIndex < availableEvents.length - 1) {
-                currentEventIndex++; 
+        nextBtn.addEventListener('click', () => {
+            if (currentEventIndex < availableEvents.length - 1) {
+                currentEventIndex++;
                 loadEvent(availableEvents[currentEventIndex]);
-            } 
+            }
         });
-        
+
+        const eventSelect = document.getElementById('event-select');
+        eventSelect.addEventListener('change', () => {
+            const selectedId = eventSelect.value;
+            const index = availableEvents.indexOf(parseInt(selectedId));
+            if (index !== -1) {
+                currentEventIndex = index;
+                loadEvent(selectedId);
+            }
+        });
+
         showTracksCheck.addEventListener('change', () => drawEvent());
         showCaloCheck.addEventListener('change', () => drawEvent());
-        showRawHitsCheck.addEventListener('change', () => drawEvent()); 
+        showRawHitsCheck.addEventListener('change', () => drawEvent());
+
+        // Volume Select All
+        document.getElementById('vol-select-all').addEventListener('change', (e) => {
+            const checked = e.target.checked;
+            document.querySelectorAll('.vol-checkbox').forEach(cb => {
+                cb.checked = checked;
+            });
+            drawEvent();
+        });
 
         ptSlider.addEventListener('input', () => {
             ptValueDisplay.innerText = parseFloat(ptSlider.value).toFixed(1);
@@ -519,7 +706,7 @@
         });
 
         pdgIdSelect.addEventListener('change', () => drawEvent());
-        
+
         // Main Menu Minimizer
         toggleMenuBtn.addEventListener('click', () => {
             uiContainer.classList.toggle('minimized');
@@ -549,6 +736,8 @@
             drawEvent();
         });
 
+        document.getElementById('cfg-calo-mode').addEventListener('change', () => drawEvent());
+
         // 3. Radius
         cfgRadius.addEventListener('input', () => {
             RAW_HIT_RADIUS = parseFloat(cfgRadius.value);
@@ -562,4 +751,5 @@
 
     </script>
 </body>
+
 </html>

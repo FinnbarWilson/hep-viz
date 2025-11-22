@@ -25,6 +25,30 @@ def view(
     # For now, let's set an env var
     os.environ["HEP_VIZ_DATA_PATH"] = str(path.absolute())
 
+    if browser:
+        import webbrowser
+        import threading
+        import time
+        import socket
+
+        def open_browser():
+            url = f"http://127.0.0.1:{port}"
+            # Poll for server availability
+            for _ in range(30): # Try for 30 seconds
+                try:
+                    with socket.create_connection(("127.0.0.1", port), timeout=1):
+                        break
+                except (OSError, ConnectionRefusedError):
+                    time.sleep(0.5)
+            else:
+                typer.echo("Server did not start in time, not opening browser.")
+                return
+
+            typer.echo(f"Server started. Opening browser at {url}")
+            webbrowser.open(url)
+
+        threading.Thread(target=open_browser, daemon=True).start()
+
     uvicorn.run("hep_viz.server:app", host="127.0.0.1", port=port, reload=False)
 
 @app.command()
