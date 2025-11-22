@@ -37,10 +37,35 @@ async def get_events():
 
 @app.get("/api/event/{event_id}")
 async def get_event(event_id: str):
+    """
+    Get processed data for a specific event.
+    """
     if not processor:
         raise HTTPException(status_code=500, detail="DataProcessor not initialized")
     try:
         data = processor.process_event(event_id)
+        if "error" in data:
+             raise HTTPException(status_code=404, detail=data["error"])
         return data
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
-        raise HTTPException(status_code=404, detail=str(e))
+        print(f"Error processing event {event_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/shutdown")
+async def shutdown():
+    """
+    Shutdown the server.
+    """
+    import os
+    import signal
+    import threading
+    import time
+
+    def kill_server():
+        time.sleep(1) # Give time for the response to be sent
+        os.kill(os.getpid(), signal.SIGTERM)
+
+    threading.Thread(target=kill_server).start()
+    return {"message": "Server shutting down..."}

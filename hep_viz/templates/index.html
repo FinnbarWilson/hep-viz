@@ -168,8 +168,45 @@
         }
 
         .toggle-icon {
-            font-family: monospace;
+            cursor: pointer;
             font-weight: bold;
+        }
+
+        /* Loading Overlay */
+        #loading-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.8);
+            z-index: 9999;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            color: #fff;
+            font-family: 'Segoe UI', sans-serif;
+        }
+
+        .spinner {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #3498db;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin-bottom: 15px;
+        }
+
+        @keyframes spin {
+            0% {
+                transform: rotate(0deg);
+            }
+
+            100% {
+                transform: rotate(360deg);
+            }
         }
 
         .hidden {
@@ -179,6 +216,10 @@
 </head>
 
 <body>
+    <div id="loading-overlay" class="hidden">
+        <div class="spinner"></div>
+        <h2 id="loading-text">Loading Event...</h2>
+    </div>
 
     <div id="canvas-container"></div>
 
@@ -257,9 +298,16 @@
 
                     <label>Hit Radius: <span id="val-radius">8</span></label>
                     <input type="range" id="cfg-radius" min="1" max="20" step="0.5" value="8">
+
+                    <label style="margin-top: 10px; cursor: pointer;">
+                        <input type="checkbox" id="cfg-grid-axes" checked> Show Grid & Axes
+                    </label>
                 </div>
             </div>
 
+            <button id="exit-btn"
+                style="background: #c0392b; color: white; border: none; padding: 8px 12px; border-radius: 4px; cursor: pointer; font-size: 14px; width: 100%; margin-top: 10px;">Exit
+                hep-viz</button>
         </div>
     </div>
 
@@ -350,13 +398,20 @@
             controls = new THREE.OrbitControls(camera, renderer.domElement);
             controls.enableDamping = true;
 
-            scene.add(new THREE.AmbientLight(0xffffff, 0.5));
+            // Helpers
+            axesHelper = new THREE.AxesHelper(5000);
+            scene.add(axesHelper);
+
+            gridHelper = new THREE.GridHelper(10000, 20, 0x555555, 0x333333);
+            scene.add(gridHelper);
+
+            // Lights
+            const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+            scene.add(ambientLight);
             const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
             dirLight.position.set(1, 1, 0.5);
             scene.add(dirLight);
 
-            scene.add(new THREE.AxesHelper(5000));
-            scene.add(new THREE.GridHelper(10000, 20, 0x555555, 0x333333));
 
             scene.add(tracksGroup);
             scene.add(caloGroup);
@@ -743,6 +798,47 @@
             RAW_HIT_RADIUS = parseFloat(cfgRadius.value);
             valRadius.innerText = RAW_HIT_RADIUS;
             drawEvent();
+        });
+
+        // --- LOADING SCREEN ---
+        const loadingOverlay = document.getElementById('loading-overlay');
+
+        function showLoading() {
+            loadingOverlay.classList.remove('hidden');
+        }
+
+        function hideLoading() {
+            loadingOverlay.classList.add('hidden');
+        }
+
+        // Override loadEvent to show loading screen
+        const originalLoadEvent = loadEvent;
+        loadEvent = async function (eventId) {
+            showLoading();
+            // Small delay to allow UI to update
+            setTimeout(async () => {
+                await originalLoadEvent(eventId);
+                hideLoading();
+            }, 50);
+        };
+
+        // --- EXIT APP ---
+        document.getElementById('exit-btn').addEventListener('click', async () => {
+            if (confirm("Are you sure you want to exit the application?")) {
+                try {
+                    await fetch('/shutdown', { method: 'POST' });
+                    document.body.innerHTML = '<div style="display:flex;justify-content:center;align-items:center;height:100vh;background:#222;color:#fff;font-family:sans-serif;"><h1>Application Stopped. You can close this tab.</h1></div>';
+                } catch (e) {
+                    console.error("Error shutting down:", e);
+                }
+            }
+        });
+
+        // --- GRID & AXES TOGGLE ---
+        document.getElementById('cfg-grid-axes').addEventListener('change', (e) => {
+            const visible = e.target.checked;
+            if (gridHelper) gridHelper.visible = visible;
+            if (axesHelper) axesHelper.visible = visible;
         });
 
         // --- Start ---
