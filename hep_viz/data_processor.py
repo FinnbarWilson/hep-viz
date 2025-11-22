@@ -21,29 +21,29 @@ class DataProcessor:
             raise FileNotFoundError(f"Path {self.path} does not exist")
 
         # Define patterns to search for
-        patterns = {
-            'particles': '**/*particles*.parquet',
-            'tracks': '**/*tracks*.parquet',
-            'tracker_hits': '**/*tracker_hits*.parquet',
-            'calo_hits': '**/*calo_hits*.parquet'
-        }
-
+        # We look for files that either have the key in the filename OR are in a directory with the key
+        keys = ['particles', 'tracks', 'tracker_hits', 'calo_hits']
+        
         found_files = {}
 
         if self.path.is_file():
-            # If it's a single file, we might need to handle it differently
-            # For now, let's assume the user points to a directory containing the dataset
             print(f"Warning: {self.path} is a file. Expecting a directory containing the dataset components.")
             return
 
-        for key, pattern in patterns.items():
-            # Recursive search
-            matches = list(self.path.rglob(pattern))
-            # Filter out known bad files or non-relevant ones if needed
-            matches = [p for p in matches if "val_loss" not in p.name]
+        # Get all parquet files
+        all_parquet = list(self.path.rglob("*.parquet"))
+        all_parquet = [p for p in all_parquet if "val_loss" not in p.name]
+
+        for key in keys:
+            # 1. Try matching filename
+            matches = [p for p in all_parquet if key in p.name]
+            
+            # 2. If no filename match, try matching parent directory name
+            if not matches:
+                matches = [p for p in all_parquet if key in p.parent.name]
             
             if matches:
-                # Take the first match for now
+                # Take the first match
                 found_files[key] = matches[0]
                 print(f"Found {key}: {matches[0]}")
             else:
