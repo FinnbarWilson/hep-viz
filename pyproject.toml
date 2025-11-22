@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "hep-viz"
+version = "0.1.0"
+description = "A local visualizer for HEP data"
+readme = "README.md"
+authors = [{ name = "Antigravity", email = "antigravity@example.com" }]
+license = { file = "LICENSE" }
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+]
+dependencies = [
+    "typer",
+    "fastapi",
+    "uvicorn",
+    "pandas",
+    "numpy",
+    "tables",
+    "pyarrow"
+]
+requires-python = ">=3.8"
+
+[project.scripts]
+hep-viz = "hep_viz.cli:app"
+
+[tool.setuptools.packages.find]
+where = ["."]

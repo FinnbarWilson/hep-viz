@@ -1,0 +1,2 @@
+[console_scripts]
+hep-viz = hep_viz.cli:app
