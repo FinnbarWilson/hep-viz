@@ -14,11 +14,23 @@ processor = None
 @app.on_event("startup")
 async def startup_event():
     global processor
-    if DATA_PATH:
-        print(f"Initializing DataProcessor with path: {DATA_PATH}")
-        processor = DataProcessor(DATA_PATH)
-    else:
-        print("Warning: HEP_VIZ_DATA_PATH not set.")
+    # Always check env var if processor is not set
+    if processor is None: 
+        # Re-fetch env var inside startup event to ensure it's captured
+        env_path = os.environ.get("HEP_VIZ_DATA_PATH")
+        if env_path:
+            print(f"Initializing DataProcessor with path: {env_path}")
+            processor = DataProcessor(env_path)
+        else:
+            print("Warning: HEP_VIZ_DATA_PATH not set and no processor provided.")
+
+def set_processor(proc):
+    global processor
+    processor = proc
+
+def run_server(host="127.0.0.1", port=8000):
+    import uvicorn
+    uvicorn.run(app, host=host, port=port)
 
 @app.get("/", response_class=HTMLResponse)
 async def read_root():
