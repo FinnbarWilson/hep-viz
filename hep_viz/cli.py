@@ -62,7 +62,7 @@ def version():
     """
     Show the current version of hep-viz.
     """
-    typer.echo("hep-viz version 0.1.0")
+    typer.echo("hep-viz version 0.1.2")
 
 if __name__ == "__main__":
     app()
