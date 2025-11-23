@@ -5,9 +5,9 @@ import socket
 from .data_processor import DataProcessor
 from .server import set_processor, run_server
 
-def visualize(data, port=8000, host="127.0.0.1"):
+def view(data, port=8000, host="127.0.0.1"):
     """
-    Visualize the provided data in a web browser.
+    View the provided data in a web browser.
     
     Args:
         data (dict): Dictionary containing the data (e.g. from Hugging Face datasets).
@@ -22,7 +22,8 @@ def visualize(data, port=8000, host="127.0.0.1"):
     set_processor(processor)
     
     # 2. Start Server in Thread
-    server_thread = threading.Thread(target=run_server, kwargs={"host": host, "port": port}, daemon=True)
+    # daemon=False ensures the script keeps running while the server is active
+    server_thread = threading.Thread(target=run_server, kwargs={"host": host, "port": port}, daemon=False)
     server_thread.start()
     
     # 3. Wait for server to start (simple poll)
