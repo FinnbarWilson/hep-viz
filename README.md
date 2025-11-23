@@ -16,8 +16,22 @@
 
 Requires Python 3.8+.
 
+### Option 1: Install from PyPI 
+
 ```bash
-git clone https://github.com/yourusername/hep-viz.git
+pip install hep-viz
+```
+
+### Option 2: Install from Conda
+
+```bash
+conda install finnbarwilson::hep-viz
+```
+
+### Option 3: Install from Source
+
+```bash
+git clone https://github.com/FinnbarWilson/hep-viz.git
 cd hep-viz
 pip install .
 ```
@@ -106,7 +120,7 @@ To contribute or modify `hep-viz`:
     ```bash
     # Install test dependencies
     pip install pytest httpx
-
+    
     # Run the test suite
     pytest
     ```
