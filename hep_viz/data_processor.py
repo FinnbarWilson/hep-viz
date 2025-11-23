@@ -2,12 +2,22 @@ import os
 from pathlib import Path
 import pandas as pd
 import numpy as np
-
 import glob
 import re
 
 class DataProcessor:
+    """
+    Handles loading and processing of HEP event data from Parquet files or in-memory dictionaries.
+    """
     def __init__(self, path):
+        """
+        Initialize the DataProcessor.
+
+        Args:
+            path (str, Path, or dict): 
+                - If str/Path: Path to the directory containing Parquet files.
+                - If dict: In-memory dictionary of data (e.g. from Hugging Face).
+        """
         self.files = {}
         self.memory_data = {}
         self.event_index_map = {} # event_id -> {key: row_index}
@@ -21,7 +31,8 @@ class DataProcessor:
 
     def load_data(self):
         """
-        Scan the directory and find the necessary files.
+        Scan the directory and find the necessary Parquet files.
+        Supports multiple files per category if filenames contain event ranges (e.g., 'events0-999').
         """
         if not self.path.exists():
             raise FileNotFoundError(f"Path {self.path} does not exist")
@@ -33,13 +44,13 @@ class DataProcessor:
             print(f"Warning: {self.path} is a file. Expecting a directory containing the dataset components.")
             return
 
-        # Get all parquet files
+        # Get all parquet files, excluding validation loss files
         all_parquet = list(self.path.rglob("*.parquet"))
         all_parquet = [p for p in all_parquet if "val_loss" not in p.name]
 
         for key in keys:
             self.files[key] = []
-            # 1. Try matching filename
+            # 1. Try matching filename directly
             matches = [p for p in all_parquet if key in p.name]
             
             # 2. If no filename match, try matching parent directory name
@@ -63,7 +74,7 @@ class DataProcessor:
                         "end": end_evt
                     })
                 
-                # Sort by start event
+                # Sort by start event to ensure logical order
                 self.files[key].sort(key=lambda x: x['start'])
             else:
                 print(f"Warning: Could not find file for {key}")
@@ -71,19 +82,16 @@ class DataProcessor:
     def _init_from_memory(self, data: dict):
         """
         Initialize from in-memory dictionary (e.g. Hugging Face dataset).
+        Builds an index map for fast random access to events.
         """
         # data is expected to be {'particles': dataset, 'tracks': dataset, ...}
         self.memory_data = data
         
-        # Create an index map for fast access if possible
-        # Assuming HF dataset or list of dicts
+        # Create an index map for fast access
         if 'particles' in self.memory_data:
             print("Indexing in-memory data...")
-            # We need to know which row corresponds to which event_id
-            # This assumes data is sorted or we scan it. 
-            # For HF datasets, we can just iterate.
             try:
-                # Check if it's a HF dataset (has features and rows)
+                # Index particles
                 particles = self.memory_data['particles']
                 for i, row in enumerate(particles):
                     eid = row['event_id']
@@ -104,13 +112,13 @@ class DataProcessor:
 
     def _load_parquet_event(self, path, event_id):
         """
-        Load data for a specific event from a parquet file using filters.
+        Load data for a specific event from a Parquet file using filters.
         """
         try:
             # Use filters to load only the specific event
             df = pd.read_parquet(path, filters=[('event_id', '==', event_id)])
             
-            # Explode common columns if they exist
+            # Explode common columns if they exist (handling variable length data)
             df = df.explode([col for col in df.columns if col != 'event_id'])
             
             if 'hit_ids' in df.columns:
@@ -123,7 +131,7 @@ class DataProcessor:
 
     def get_event_list(self):
         """
-        Return a list of available events.
+        Return a dictionary containing a list of available event IDs.
         """
         if self.memory_data:
             events = sorted(list(self.event_index_map.keys()))
@@ -133,14 +141,12 @@ class DataProcessor:
             all_events = set()
             try:
                 for file_info in self.files['particles']:
-                    # Optimization: if range is known, just add the range
+                    # Optimization: if range is known from filename, just add the range
                     if file_info['start'] != -1 and file_info['end'] != -1:
-                        # end is usually inclusive in filenames like 0-9 (10 events)
-                        # But let's be safe and read if unsure, or assume inclusive.
-                        # Standard convention is inclusive.
+                        # ranges in filenames are usually inclusive
                         all_events.update(range(file_info['start'], file_info['end'] + 1))
                     else:
-                        # Fallback: read file
+                        # Fallback: read file to find event IDs
                         df = pd.read_parquet(file_info['path'], columns=['event_id'])
                         all_events.update(df['event_id'].unique().tolist())
                 
@@ -152,7 +158,8 @@ class DataProcessor:
 
     def process_event(self, event_id: str):
         """
-        Load and process data for a specific event on demand.
+        Load and process data for a specific event ID.
+        Returns a dictionary with 'tracks', 'calo_hits', 'all_tracker_hits', and 'metadata'.
         """
         try:
             n = int(event_id)
@@ -160,7 +167,7 @@ class DataProcessor:
             raise ValueError(f"Invalid event ID: {event_id}")
 
         if self.memory_data:
-            # Load from memory
+            # --- Load from Memory ---
             if n not in self.event_index_map:
                 return {"error": f"Event {n} not found in memory data"}
             
@@ -172,16 +179,7 @@ class DataProcessor:
             
             p_idx = idx_map['particles']
             p_data = self.memory_data['particles'][p_idx]
-            # Convert HF row (dict of lists/values) to DataFrame
-            # HF row: {'event_id': 0, 'px': [1, 2], 'py': [3, 4], ...}
-            # We need to convert this to a DataFrame where each particle is a row
             particles = pd.DataFrame(p_data)
-            # If it's a single row (scalar values), wrap in list? 
-            # HF datasets usually return a dict where values are lists if it's a list column.
-            # But if it's a scalar column, it's a scalar.
-            # Wait, the HF dataset structure for ColliderML has list columns for variable length data.
-            # So p_data['px'] is a list of px values.
-            # pd.DataFrame(p_data) should work if all lists have same length.
             
             # Tracker Hits
             tracker_hits = pd.DataFrame()
@@ -198,11 +196,11 @@ class DataProcessor:
                 calo_hits = pd.DataFrame(ch_data)
 
         else:
-            # Load from files
+            # --- Load from Files ---
             if 'particles' not in self.files or not self.files['particles']:
                 return {"error": "No particle data found"}
 
-            # Helper to find correct file
+            # Helper to find correct file based on event ID
             def get_file_for_event(key, event_id):
                 if key not in self.files:
                     return None
@@ -212,19 +210,12 @@ class DataProcessor:
                     if f['start'] <= event_id <= f['end']:
                         return f['path']
                 
-                # 2. If no range match (or ranges unknown), check all files (slow fallback)
-                # Or maybe we just return None and fail?
-                # Let's try to be robust: if ranges are -1, we might need to check.
-                # But for now, let's assume if ranges are present, they are correct.
-                # If ranges are -1, we pick the first one? No, that's bad.
-                # If ranges are -1, we might have to open them.
+                # 2. Fallback: if ranges are unknown (-1), check all files (slow)
+                # Ideally, we should avoid this by ensuring filenames have ranges.
                 for f in self.files[key]:
                     if f['start'] == -1:
-                         # Try loading? This is expensive.
-                         # Maybe just return the first one if only one exists
                          if len(self.files[key]) == 1:
                              return f['path']
-                
                 return None
 
             p_path = get_file_for_event('particles', n)
@@ -244,39 +235,25 @@ class DataProcessor:
             if ch_path:
                 calo_hits = self._load_parquet_event(ch_path, n)
 
-        # Common processing (rest of the function)
+        # --- Common Processing ---
         
+        # 1. Pre-process Tracker Hits
         if not tracker_hits.empty:
-             # Pre-process tracker hits (create HIT_ID) - doing this per event now
              if 'HIT_ID' not in tracker_hits.columns:
                 tracker_hits = tracker_hits.reset_index(drop=True)
                 tracker_hits = tracker_hits.reset_index().rename(columns={'index': 'HIT_ID'})
              tracker_hits = tracker_hits.apply(pd.to_numeric, errors='coerce')
 
+        # 2. Pre-process Calo Hits
         if not calo_hits.empty:
-             # Pre-process calo hits
              if 'HIT_ID' not in calo_hits.columns:
                 calo_hits = calo_hits.reset_index(drop=True)
                 calo_hits = calo_hits.reset_index().rename(columns={'index': 'HIT_ID'})
              
-             # Explode if needed (for file based it was needed, for HF it might be list of lists?)
-             # If HF returns lists, pd.DataFrame(data) makes columns of lists.
-             # We need to explode them?
-             # Let's check. If I do pd.DataFrame({'a': [1, 2], 'b': [3, 4]}), I get 2 rows.
-             # If HF row is {'px': [1, 2], 'py': [3, 4]}, pd.DataFrame(row) gives 2 rows.
-             # So for particles and tracker hits, it's fine.
-             # For calo hits, we have nested lists? 
-             # "Format: Apache Parquet with list columns for variable-length data"
-             # So `contrib_particle_ids` is a list of lists? No, for a single event, it's a list of lists (one list per hit).
-             # Wait, `_load_parquet_event` does `df.explode`.
-             # If we load from HF, we get one "row" which is the event.
-             # The columns are lists of values (e.g. x is list of floats).
-             # So `pd.DataFrame(p_data)` creates a DF where each row is a hit/particle.
-             # BUT, `contrib_particle_ids` for a calo hit is ITSELF a list.
-             # So `pd.DataFrame(ch_data)` will have a column `contrib_particle_ids` where each element is a list.
-             # So we DO need to explode it, just like in file loading.
-             
+             # Explode list columns (e.g. contrib_particle_ids)
+             # This is necessary because a single calo hit can have contributions from multiple particles.
              cols_to_explode = ['contrib_particle_ids', 'contrib_energies', 'contrib_times']
+             
              # Check which columns are actually lists and present
              actual_explode_cols = []
              for col in cols_to_explode:
@@ -288,9 +265,10 @@ class DataProcessor:
              
              if actual_explode_cols:
                  try:
+                     # Explode all list columns simultaneously to avoid Cartesian product
                      calo_hits = calo_hits.explode(actual_explode_cols)
                  except ValueError as e:
-                     # Fallback for older pandas or mismatched lengths (though shouldn't happen in valid data)
+                     # Fallback for older pandas or mismatched lengths
                      print(f"Warning: Simultaneous explode failed ({e}). Falling back to sequential (may cause duplicates).")
                      for col in actual_explode_cols:
                          calo_hits = calo_hits.explode(col)
@@ -300,17 +278,15 @@ class DataProcessor:
                  if col in calo_hits.columns:
                      calo_hits[col] = pd.to_numeric(calo_hits[col], errors='coerce')
 
-        # 2. Apply static cuts
+        # 3. Apply static cuts (Vertex position)
         if 'vx' in particles.columns and 'vy' in particles.columns:
             particles = particles[abs(particles['vx']) < 1]
             particles = particles[abs(particles['vy']) < 1]
         
-        # 3. Calculate pT and PDG ID
+        # 4. Calculate pT and PDG ID
         if 'px' in particles.columns and 'py' in particles.columns:
-            # Ensure numeric
             particles['px'] = pd.to_numeric(particles['px'], errors='coerce')
             particles['py'] = pd.to_numeric(particles['py'], errors='coerce')
-            
             particles['pT'] = np.sqrt(particles['px']**2 + particles['py']**2)
         else:
             particles['pT'] = 0.0
@@ -318,11 +294,11 @@ class DataProcessor:
         # Get particle IDs to match
         particles_id = particles["particle_id"].unique()
         
-        # Create lookup maps
+        # Create lookup maps for fast enrichment
         pt_map = particles.set_index('particle_id')['pT'].to_dict()
         pdg_map = particles.set_index('particle_id')['pdg_id'].to_dict()
 
-        # 4.1 Process ALL Tracker Hits
+        # 5. Process ALL Tracker Hits (for point cloud)
         all_event_tracker_hits = []
         has_volumes = False
         
@@ -338,12 +314,11 @@ class DataProcessor:
             if 'volume_id' in filtered_tracker_hits.columns:
                 cols_to_keep.append('volume_id')
                 has_volumes = True
-                # Ensure int
                 filtered_tracker_hits['volume_id'] = pd.to_numeric(filtered_tracker_hits['volume_id'], errors='coerce').fillna(-1).astype(int)
             
             all_event_tracker_hits = filtered_tracker_hits[cols_to_keep].to_dict(orient='records')
 
-        # 4.2 Process Tracks
+        # 6. Process Tracks (grouped hits)
         event_tracks = []
         if not tracker_hits.empty:
             tracker_hits_for_tracks = tracker_hits[tracker_hits["particle_id"].isin(particles_id)].copy()
@@ -351,11 +326,9 @@ class DataProcessor:
             tracker_hits_for_tracks = tracker_hits_for_tracks.sort_values(by=['particle_id', 'r'])
 
             for particle_id, group_of_hits in tracker_hits_for_tracks.groupby('particle_id'):
-                # Include volume_id in points if available
                 cols = ['x', 'y', 'z']
                 if 'volume_id' in group_of_hits.columns:
                     cols.append('volume_id')
-                    # Ensure volume_id is int
                     group_of_hits['volume_id'] = pd.to_numeric(group_of_hits['volume_id'], errors='coerce').fillna(-1).astype(int)
                 
                 points = group_of_hits[cols].to_dict(orient='records')
@@ -368,10 +341,10 @@ class DataProcessor:
                         'points': points
                     })
 
-        # 5. Process Calo Hits
+        # 7. Process Calo Hits
         event_calo_hits = []
         if not calo_hits.empty and 'contrib_particle_ids' in calo_hits.columns:
-            # Note: calo_hits is already exploded in load_data (now in process_event)
+            # Note: calo_hits is already exploded above
             
             calo_hits['contrib_particle_ids'] = pd.to_numeric(calo_hits['contrib_particle_ids'], errors='coerce')
             calo_hits = calo_hits.dropna(subset=['contrib_particle_ids'])

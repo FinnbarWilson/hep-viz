@@ -7,7 +7,7 @@ name = "hep-viz"
 version = "0.1.0"
 description = "A local visualizer for HEP data"
 readme = "README.md"
-authors = [{ name = "Antigravity", email = "antigravity@example.com" }]
+authors = [{ name = "Finnbar Wilson", email = "finnbareason@gmail.com" }]
 license = { file = "LICENSE" }
 classifiers = [
     "Programming Language :: Python :: 3",

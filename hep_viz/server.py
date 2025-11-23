@@ -7,14 +7,18 @@ from .data_processor import DataProcessor
 
 app = FastAPI()
 
-# Get data path from env var set by CLI
-DATA_PATH = os.environ.get("HEP_VIZ_DATA_PATH")
+# Global processor instance.
+# This will be initialized either via environment variable (CLI mode)
+# or directly via set_processor (Python API mode).
 processor = None
 
 @app.on_event("startup")
 async def startup_event():
+    """
+    Initialize the DataProcessor on server startup.
+    Checks for the HEP_VIZ_DATA_PATH environment variable if the processor is not already set.
+    """
     global processor
-    # Always check env var if processor is not set
     if processor is None: 
         # Re-fetch env var inside startup event to ensure it's captured
         env_path = os.environ.get("HEP_VIZ_DATA_PATH")
@@ -25,17 +29,25 @@ async def startup_event():
             print("Warning: HEP_VIZ_DATA_PATH not set and no processor provided.")
 
 def set_processor(proc):
+    """
+    Manually set the DataProcessor instance.
+    Used when running from the Python API.
+    """
     global processor
     processor = proc
 
 def run_server(host="127.0.0.1", port=8000):
+    """
+    Run the Uvicorn server programmatically.
+    """
     import uvicorn
     uvicorn.run(app, host=host, port=port)
 
 @app.get("/", response_class=HTMLResponse)
 async def read_root():
-    # Serve the index.html
-    # In a real package, we might want to use Jinja2Templates or just read the file
+    """
+    Serve the main application page (index.html).
+    """
     template_path = Path(__file__).parent / "templates" / "index.html"
     if template_path.exists():
         return template_path.read_text()
@@ -43,6 +55,9 @@ async def read_root():
 
 @app.get("/api/events")
 async def get_events():
+    """
+    Get the list of available event IDs.
+    """
     if not processor:
         raise HTTPException(status_code=500, detail="DataProcessor not initialized")
     return processor.get_event_list()
@@ -50,7 +65,8 @@ async def get_events():
 @app.get("/api/event/{event_id}")
 async def get_event(event_id: str):
     """
-    Get processed data for a specific event.
+    Get processed data for a specific event ID.
+    Returns JSON containing particles, tracks, and hits.
     """
     if not processor:
         raise HTTPException(status_code=500, detail="DataProcessor not initialized")
@@ -61,6 +77,8 @@ async def get_event(event_id: str):
         return data
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+    except HTTPException:
+        raise
     except Exception as e:
         print(f"Error processing event {event_id}: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -68,7 +86,7 @@ async def get_event(event_id: str):
 @app.post("/shutdown")
 async def shutdown():
     """
-    Shutdown the server.
+    Gracefully shutdown the server.
     """
     import os
     import signal
