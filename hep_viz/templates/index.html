@@ -212,6 +212,42 @@
         .hidden {
             display: none !important;
         }
+
+        /* Track Popup */
+        #track-popup {
+            display: none;
+            position: absolute;
+            background: rgba(0, 0, 0, 0.9);
+            border: 1px solid #00ff00;
+            padding: 10px;
+            border-radius: 5px;
+            z-index: 1000;
+            color: #eee;
+            font-family: monospace;
+            max-height: 300px;
+            overflow-y: auto;
+            width: 250px;
+            font-size: 13px;
+            box-shadow: 0 0 10px rgba(0, 255, 0, 0.2);
+        }
+
+        .calo-list {
+            display: none;
+            margin-top: 5px;
+            border-top: 1px solid #555;
+            padding-top: 5px;
+        }
+
+        .calo-list.open {
+            display: block;
+        }
+
+        .toggle-btn {
+            cursor: pointer;
+            color: #3498db;
+            text-decoration: underline;
+            font-size: 12px;
+        }
     </style>
 </head>
 
@@ -220,6 +256,8 @@
         <div class="spinner"></div>
         <h2 id="loading-text">Loading Event...</h2>
     </div>
+
+    <div id="track-popup"></div>
 
     <div id="canvas-container"></div>
 
@@ -381,6 +419,11 @@
         const lblCalo = document.getElementById('lbl-calo');
         const lblCfgCalo = document.getElementById('lbl-cfg-calo');
         const pdgContainer = document.getElementById('pdg-container');
+
+        // Raycaster
+        const raycaster = new THREE.Raycaster();
+        const mouse = new THREE.Vector2();
+        raycaster.params.Line.threshold = 0.5;
 
         // 1. Initialize Scene
         function init() {
@@ -621,6 +664,14 @@
                 const geometry = new THREE.TubeGeometry(curve, segments, TRACK_THICKNESS, 8, false);
                 const color = getColor(particleId);
                 const mesh = new THREE.Mesh(geometry, new THREE.MeshBasicMaterial({ color: color }));
+
+                // Attach track data for raycasting
+                // Find the original track object to attach
+                const originalTrack = fTracks.find(t => t.particle_id === particleId);
+                if (originalTrack) {
+                    mesh.userData = { track: originalTrack };
+                }
+
                 tracksGroup.add(mesh);
             };
 
@@ -799,6 +850,91 @@
             valRadius.innerText = RAW_HIT_RADIUS;
             drawEvent();
         });
+
+        // --- CLICK INTERACTION ---
+
+        window.addEventListener('click', onMouseClick, false);
+
+        function onMouseClick(event) {
+            // Ignore clicks on UI
+            if (event.target.closest('#ui-container') || event.target.closest('#track-popup')) return;
+
+            // 1. Calculate mouse position in normalized device coordinates (-1 to +1)
+            mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+            mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+
+            // 2. Cast ray
+            raycaster.setFromCamera(mouse, camera);
+            const intersects = raycaster.intersectObjects(tracksGroup.children);
+
+            if (intersects.length > 0) {
+                // Found a track!
+                const selectedMesh = intersects[0].object;
+                const trackData = selectedMesh.userData.track;
+
+                if (trackData) {
+                    showPopup(event.clientX, event.clientY, trackData);
+                }
+            } else {
+                hidePopup();
+            }
+        }
+
+        function showPopup(x, y, data) {
+            const popup = document.getElementById('track-popup');
+            popup.style.left = (x + 15) + 'px';
+            popup.style.top = (y + 15) + 'px';
+            popup.style.display = 'block';
+
+            let recoHtml = '<em>No Reco Track</em>';
+            if (data.reco_info && data.reco_info.has_reco) {
+                recoHtml = `
+                    <strong>d0:</strong> ${data.reco_info.d0.toFixed(3)}<br>
+                    <strong>z0:</strong> ${data.reco_info.z0.toFixed(3)}<br>
+                    <strong>phi:</strong> ${data.reco_info.phi.toFixed(3)}<br>
+                    <strong>theta:</strong> ${data.reco_info.theta.toFixed(3)}<br>
+                    <strong>qop:</strong> ${data.reco_info.qop.toFixed(3)}
+                `;
+            }
+
+            let caloHtml = `<strong>Calo Hits:</strong> ${data.calo_hits ? data.calo_hits.length : 0}`;
+            if (data.calo_hits && data.calo_hits.length > 0) {
+                const totalE = data.calo_hits.reduce((sum, h) => sum + h.energy, 0);
+                caloHtml += ` (Total E: ${totalE.toFixed(4)})<br>`;
+
+                caloHtml += `<span class="toggle-btn" onclick="toggleCaloList()">[Show/Hide Details]</span>`;
+                caloHtml += `<div id="popup-calo-list" class="calo-list">`;
+                data.calo_hits.forEach(h => {
+                    caloHtml += `<div>E: ${h.energy.toFixed(4)} (${h.detector})</div>`;
+                });
+                caloHtml += `</div>`;
+            }
+
+            popup.innerHTML = `
+                <div style="margin-bottom:8px; border-bottom:1px solid #555; padding-bottom:5px;">
+                    <strong>Particle ID:</strong> ${data.particle_id}<br>
+                    <strong>PDG:</strong> ${data.pdg_id}<br>
+                    <strong>Truth pT:</strong> ${data.pT.toFixed(2)}
+                </div>
+                <div style="margin-bottom:8px;">
+                    ${recoHtml}
+                </div>
+                <div>
+                    ${caloHtml}
+                </div>
+            `;
+        }
+
+        function hidePopup() {
+            const popup = document.getElementById('track-popup');
+            popup.style.display = 'none';
+        }
+
+        // Global function for the onclick handler
+        window.toggleCaloList = function () {
+            const el = document.getElementById('popup-calo-list');
+            if (el) el.classList.toggle('open');
+        }
 
         // --- LOADING SCREEN ---
         const loadingOverlay = document.getElementById('loading-overlay');

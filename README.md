@@ -94,6 +94,11 @@ Once the server starts, `hep-viz` opens an interactive 3D visualization in your 
 *   **Tracker Hits**: Individual detector measurements forming the reconstructed tracks.
 *   **Interactive Controls**: Rotate, zoom, and pan to explore the event from any angle.
 *   **Event Navigation**: Browse through multiple events in your dataset using the event selector.
+*   **Track Selection**: Click on any track in the 3D view to see detailed information:
+	*   **Particle Info**: PDG ID, Truth pT.
+	*   **Reconstruction Info**: d0, z0, phi, theta, qop (if available).
+	*   **Calorimeter Deposits**: Total energy and a collapsible list of individual cell contributions.
+
 
 
 ## Data Format

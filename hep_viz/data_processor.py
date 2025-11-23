@@ -195,6 +195,13 @@ class DataProcessor:
                 ch_data = self.memory_data['calo_hits'][ch_idx]
                 calo_hits = pd.DataFrame(ch_data)
 
+            # Reco Tracks
+            tracks_df = pd.DataFrame()
+            if 'tracks' in idx_map:
+                t_idx = idx_map['tracks']
+                t_data = self.memory_data['tracks'][t_idx]
+                tracks_df = pd.DataFrame(t_data)
+
         else:
             # --- Load from Files ---
             if 'particles' not in self.files or not self.files['particles']:
@@ -234,6 +241,11 @@ class DataProcessor:
             ch_path = get_file_for_event('calo_hits', n)
             if ch_path:
                 calo_hits = self._load_parquet_event(ch_path, n)
+
+            tracks_df = pd.DataFrame()
+            t_path = get_file_for_event('tracks', n)
+            if t_path:
+                tracks_df = self._load_parquet_event(t_path, n)
 
         # --- Common Processing ---
         
@@ -334,10 +346,42 @@ class DataProcessor:
                 points = group_of_hits[cols].to_dict(orient='records')
                 
                 if len(points) > 1:
+                    # A. Find Matching Reco Track
+                    track_info = {
+                        'd0': 0.0, 'z0': 0.0, 'phi': 0.0, 'theta': 0.0, 'qop': 0.0,
+                        'has_reco': False
+                    }
+                    
+                    if not tracks_df.empty and 'majority_particle_id' in tracks_df.columns:
+                        reco_track = tracks_df[tracks_df['majority_particle_id'] == particle_id]
+                        if not reco_track.empty:
+                            row = reco_track.iloc[0]
+                            track_info = {
+                                'd0': float(row['d0']) if 'd0' in row else 0.0,
+                                'z0': float(row['z0']) if 'z0' in row else 0.0,
+                                'phi': float(row['phi']) if 'phi' in row else 0.0,
+                                'theta': float(row['theta']) if 'theta' in row else 0.0,
+                                'qop': float(row['qop']) if 'qop' in row else 0.0,
+                                'has_reco': True
+                            }
+
+                    # B. Get Associated Calo Contributions
+                    calo_data = []
+                    if not calo_hits.empty and 'contrib_particle_ids' in calo_hits.columns:
+                        associated_calo = calo_hits[calo_hits['contrib_particle_ids'] == particle_id]
+                        for _, hit in associated_calo.iterrows():
+                            calo_data.append({
+                                'energy': float(hit['contrib_energies']) if 'contrib_energies' in hit else 0.0,
+                                'detector': str(hit['detector']) if 'detector' in hit else 'Unknown',
+                                'cell_id': str(hit['cell_id']) if 'cell_id' in hit else ''
+                            })
+
                     event_tracks.append({
                         'particle_id': int(particle_id),
                         'pT': float(pt_map.get(particle_id, 0)),
                         'pdg_id': int(pdg_map.get(particle_id, 0)),
+                        'reco_info': track_info,
+                        'calo_hits': calo_data,
                         'points': points
                     })
 
