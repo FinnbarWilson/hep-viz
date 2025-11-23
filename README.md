@@ -40,10 +40,25 @@ hep-viz view /path/to/data/directory
 
 Use `hep-viz` directly within your Python scripts or Jupyter Notebooks. This is perfect for visualizing in-memory data (e.g., from Hugging Face Datasets).
 
+**Example with Hugging Face Datasets:**
+
+```python
+import hep_viz
+from datasets import load_dataset
+
+# Load a compatible dataset (e.g., OpenDataDetector)
+dataset = load_dataset("OpenDataDetector/ColliderML_higgs_pu0")
+
+# Launches the server and opens the visualization
+hep_viz.view(dataset)
+```
+
+**Example with Custom Dictionary:**
+
 ```python
 import hep_viz
 
-# Data should be a dictionary of lists or a Hugging Face Dataset
+# Data should be a dictionary of lists
 data = {
     "particles": [...],
     "tracks": [...],
@@ -51,7 +66,6 @@ data = {
     "calo_hits": [...]
 }
 
-# Launches the server and opens the visualization
 hep_viz.view(data)
 ```
 

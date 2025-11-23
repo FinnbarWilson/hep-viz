@@ -1,23 +1,24 @@
 from fastapi import FastAPI, HTTPException
-from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse
-import os
+from fastapi.staticfiles import StaticFiles
 from pathlib import Path
+from contextlib import asynccontextmanager
+import os
+import threading
+import time
+import signal # Added for consistency with shutdown endpoint
 from .data_processor import DataProcessor
 
-app = FastAPI()
-
-# Global processor instance.
-# This will be initialized either via environment variable (CLI mode)
-# or directly via set_processor (Python API mode).
+# Global DataProcessor instance
 processor = None
 
-@app.on_event("startup")
-async def startup_event():
+@asynccontextmanager
+async def lifespan(app: FastAPI):
     """
-    Initialize the DataProcessor on server startup.
-    Checks for the HEP_VIZ_DATA_PATH environment variable if the processor is not already set.
+    Lifespan context manager for the FastAPI app.
+    Handles startup and shutdown logic.
     """
+    # --- Startup Logic ---
     global processor
     if processor is None: 
         # Re-fetch env var inside startup event to ensure it's captured
@@ -27,6 +28,15 @@ async def startup_event():
             processor = DataProcessor(env_path)
         else:
             print("Warning: HEP_VIZ_DATA_PATH not set and no processor provided.")
+    
+    yield
+    # --- Shutdown Logic (if any) ---
+    pass
+
+app = FastAPI(lifespan=lifespan)
+
+# Serve static files (CSS, JS) if needed
+# app.mount("/static", StaticFiles(directory="static"), name="static")
 
 def set_processor(proc):
     """
