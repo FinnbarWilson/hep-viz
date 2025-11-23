@@ -30,3 +30,6 @@ hep-viz = "hep_viz.cli:app"
 
 [tool.setuptools.packages.find]
 where = ["."]
+
+[tool.setuptools.package-data]
+hep_viz = ["templates/*.html"]
