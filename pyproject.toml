@@ -20,8 +20,8 @@ dependencies = [
     "uvicorn",
     "pandas",
     "numpy",
-    "tables",
-    "pyarrow"
+    "pyarrow",
+    "datasets"
 ]
 requires-python = ">=3.8"
 
