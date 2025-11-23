@@ -105,11 +105,11 @@ Once the server starts, `hep-viz` opens an interactive 3D visualization in your 
 1.  **`particles`**: Truth-level particle information.
     *   *Columns*: `event_id`, `particle_id`, `pdg_id`, `px`, `py`, `vx`, `vy`
 2.  **`tracks`**: Reconstructed track information (optional, or derived from hits).
-    *   *Columns*: `event_id`, `particle_id`, `pT`, `pdg_id`
+    *   *Columns*: `event_id`, `hit_ids`, `majority_particle_id`, `track_id`
 3.  **`tracker_hits`**: Individual hits in the tracker layers.
     *   *Columns*: `event_id`, `particle_id`, `x`, `y`, `z`, `volume_id`
 4.  **`calo_hits`**: Energy deposits in the calorimeter.
-    *   *Columns*: `event_id`, `cell_id`, `x`, `y`, `z`, `total_energy`, `contrib_particle_ids` (list), `contrib_energies` (list)
+    *   *Columns*: `event_id`, `x`, `y`, `z`, `contrib_particle_ids` (list), `contrib_energies` (list)
 
 ### File Naming (CLI)
 For the CLI to automatically detect files, they should contain the category name (e.g., `my_particles.parquet`). You can split data across multiple files using the pattern `events<start>-<end>` (e.g., `particles.events0-999.parquet`).
