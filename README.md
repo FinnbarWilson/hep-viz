@@ -83,6 +83,19 @@ data = {
 hep_viz.view(data)
 ```
 
+### 3. The Application
+
+![hep-viz_event](Images/hep-viz_event.png)
+
+Once the server starts, `hep-viz` opens an interactive 3D visualization in your browser. The interface displays:
+
+*   **Particle Tracks**: Trajectories of particles with a pt cut filter
+*   **Calorimeter Hits**: Energy deposits shown as cubes, sized by energy contribution.
+*   **Tracker Hits**: Individual detector measurements forming the reconstructed tracks.
+*   **Interactive Controls**: Rotate, zoom, and pan to explore the event from any angle.
+*   **Event Navigation**: Browse through multiple events in your dataset using the event selector.
+
+
 ## Data Format
 
 `hep-viz` expects data to be organized into four main categories. If using the CLI, these should be Parquet files in your target directory. If using the Python API, these should be keys in your dictionary.
