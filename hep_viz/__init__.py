@@ -1,3 +1,4 @@
+import os
 import threading
 import webbrowser
 import time
@@ -5,9 +6,9 @@ import socket
 from .data_processor import DataProcessor
 from .server import set_processor, run_server
 
-def view(data, port=8000, host="127.0.0.1"):
+def view(data, port=8000, host="127.0.0.1", open_browser=None):
     """
-    Launch the hep-viz 3D event visualizer in the default web browser.
+    Launch the hep-viz 3D event visualizer.
     
     This function initializes the data processor with the provided data,
     starts a local web server in a background thread, and opens the
@@ -19,7 +20,15 @@ def view(data, port=8000, host="127.0.0.1"):
                      Required keys: 'particles', 'tracks', 'tracker_hits', 'calo_hits'.
         port (int): The port to run the local web server on. Default is 8000.
         host (str): The host to bind the server to. Default is "127.0.0.1".
+        open_browser (bool, optional): Whether to automatically open the browser. 
+                                       If None, it detects if running in an SSH session.
     """
+    # Auto-detect SSH session
+    is_ssh = "SSH_CONNECTION" in os.environ
+    
+    if open_browser is None:
+        open_browser = not is_ssh
+
     print("Initializing hep-viz...")
     
     # Initialize the DataProcessor with the provided in-memory data
@@ -46,7 +55,17 @@ def view(data, port=8000, host="127.0.0.1"):
 
     if wait_for_server():
         url = f"http://{host}:{port}"
-        print(f"Server started! Opening {url}")
-        webbrowser.open(url)
+        
+        if open_browser:
+            print(f"Server started! Opening {url}")
+            webbrowser.open(url)
+        else:
+            print(f"\n✅ Server running at {url}")
+            if is_ssh:
+                print("\n⚠️  SSH session detected. The browser cannot open automatically.")
+                print(f"To view this on your local machine, forward the port by running this in a NEW local terminal:")
+                print(f"\n    ssh -L {port}:localhost:{port} <your-user>@<remote-host>\n")
+                print(f"Then open this URL in your local browser:\n")
+                print(f"    http://localhost:{port}\n")
     else:
         print("Error: Server failed to start within timeout.")

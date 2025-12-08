@@ -284,13 +284,25 @@
             <!-- Hidden text display, kept for fallback logic but hidden -->
             <span id="event-display" style="display: none;">Event: -</span>
 
+            <!-- Track Source Selection -->
+            <div id="track-source-container" style="margin-bottom: 10px; display: none;">
+                <label for="track-source-select" style="font-size: 14px; color: #ccc;">Reco Algorithm:</label>
+                <select id="track-source-select"
+                    style="width: 100%; padding: 4px; background: #333; color: #eee; border: 1px solid #555;">
+                    <!-- Populated via JS -->
+                </select>
+            </div>
+
             <h3 id="track-count">Tracks: 0</h3>
+            <div id="reco-track-count" style="font-size: 12px; color: #aaa; margin-bottom: 10px;">Reco Tracks: 0</div>
             <h3 id="calo-count">Calo Hits: 0</h3>
             <h3 id="raw-hit-count">Raw Hits: 0</h3>
 
             <div class="ui-section">
                 <h4>Display Options</h4>
                 <label id="lbl-tracks"><input type="checkbox" id="show-tracks-check" checked> Show Tracks</label>
+                <label id="lbl-grey-reco"><input type="checkbox" id="grey-reco-check" checked> Grey out non-reco
+                    tracks</label>
                 <label id="lbl-calo"><input type="checkbox" id="show-calo-check" checked> Show Calorimeter</label>
                 <label id="lbl-raw"><input type="checkbox" id="show-raw-hits-check"> Show Raw Hits</label>
             </div>
@@ -361,6 +373,8 @@
         let eventData = {};
         let currentEventIndex = 0;
         let availableEvents = [];
+        let availableTrackSources = [];
+        let currentTrackSource = "tracks";
 
         let tracksGroup = new THREE.Group();
         let caloGroup = new THREE.Group();
@@ -387,6 +401,7 @@
         // --- DOM Elements ---
         const eventDisplay = document.getElementById('event-display');
         const trackCountDisplay = document.getElementById('track-count');
+        const recoTrackCountDisplay = document.getElementById('reco-track-count');
         const caloCountDisplay = document.getElementById('calo-count');
         const rawHitCountDisplay = document.getElementById('raw-hit-count');
         const prevBtn = document.getElementById('prev-btn');
@@ -394,11 +409,14 @@
 
         // Main Controls
         const showTracksCheck = document.getElementById('show-tracks-check');
+        const greyRecoCheck = document.getElementById('grey-reco-check');
         const showCaloCheck = document.getElementById('show-calo-check');
         const showRawHitsCheck = document.getElementById('show-raw-hits-check');
         const ptSlider = document.getElementById('pt-slider');
         const ptValueDisplay = document.getElementById('pt-value');
         const pdgIdSelect = document.getElementById('pdg-id-select');
+        const trackSourceSelect = document.getElementById('track-source-select');
+        const trackSourceContainer = document.getElementById('track-source-container');
         const uiContainer = document.getElementById('ui-container');
         const toggleMenuBtn = document.getElementById('toggle-menu-btn');
 
@@ -483,6 +501,23 @@
                 const data = await response.json();
                 availableEvents = data.events;
 
+                // Handle Track Sources
+                if (data.track_sources && data.track_sources.length > 0) {
+                    availableTrackSources = data.track_sources;
+                    trackSourceContainer.style.display = 'block';
+                    trackSourceSelect.innerHTML = '';
+                    availableTrackSources.forEach(src => {
+                        const opt = document.createElement('option');
+                        opt.value = src;
+                        opt.innerText = src;
+                        trackSourceSelect.appendChild(opt);
+                    });
+                    currentTrackSource = availableTrackSources[0]; // Default to first
+                } else {
+                    trackSourceContainer.style.display = 'none';
+                    currentTrackSource = 'tracks'; // Fallback
+                }
+
                 // Populate Dropdown
                 const eventSelect = document.getElementById('event-select');
                 eventSelect.innerHTML = '';
@@ -508,7 +543,7 @@
         async function loadEvent(eventId) {
             try {
                 // eventDisplay.innerText = `Loading Event ${eventId}...`; // Don't overwrite dropdown
-                const response = await fetch(`/api/event/${eventId}`);
+                const response = await fetch(`/api/event/${eventId}?track_source=${currentTrackSource}`);
                 if (!response.ok) throw new Error(`Failed to load event ${eventId}`);
                 eventData = await response.json();
 
@@ -600,6 +635,7 @@
             const ptCut = parseFloat(ptSlider.value);
             const selectedPdgId = pdgIdSelect.value === 'all' ? null : parseInt(pdgIdSelect.value);
             const showTracks = showTracksCheck.checked;
+            const greyNonReco = greyRecoCheck.checked;
             const showCalo = showCaloCheck.checked;
             const showRawHits = showRawHitsCheck.checked;
 
@@ -637,6 +673,11 @@
             const fRawHits = eventData.all_tracker_hits ? eventData.all_tracker_hits.filter(filterFunction) : [];
 
             trackCountDisplay.innerText = `Tracks: ${fTracks.length} / ${eventData.tracks ? eventData.tracks.length : 0}`;
+
+            // Calculate Reco Tracks
+            const recoTracks = fTracks.filter(t => t.reco_info && t.reco_info.has_reco);
+            recoTrackCountDisplay.innerText = `Reco Tracks: ${recoTracks.length}`;
+
             caloCountDisplay.innerText = `Calo Hits: ${fCalo.length} / ${eventData.calo_hits ? eventData.calo_hits.length : 0}`;
             rawHitCountDisplay.innerText = `Raw Hits: ${fRawHits.length} / ${eventData.all_tracker_hits ? eventData.all_tracker_hits.length : 0}`;
 
@@ -644,6 +685,9 @@
             fTracks.forEach(t => uniqueParticleIds.add(t.particle_id));
             fCalo.forEach(c => uniqueParticleIds.add(c.particle_id));
             fRawHits.forEach(h => uniqueParticleIds.add(h.particle_id));
+
+            // Set of particle IDs that have a reconstructed track
+            const recoParticleIds = new Set(recoTracks.map(t => t.particle_id));
 
             const particleColorMap = new Map();
             let colorIndex = 0;
@@ -662,12 +706,22 @@
                 // Adjust segments based on length to avoid artifacts
                 const segments = Math.max(4, points.length * 6);
                 const geometry = new THREE.TubeGeometry(curve, segments, TRACK_THICKNESS, 8, false);
-                const color = getColor(particleId);
+
+                // Determine color: Grey if no reco, else particle color
+                // Find the track to check reco status
+                const originalTrack = fTracks.find(t => t.particle_id === particleId);
+                let color = getColor(particleId); // Default to particle color
+
+                if (greyNonReco) {
+                    // If toggle is ON, check if we should grey it out
+                    if (originalTrack && (!originalTrack.reco_info || !originalTrack.reco_info.has_reco)) {
+                        color = 0x888888;
+                    }
+                }
+
                 const mesh = new THREE.Mesh(geometry, new THREE.MeshBasicMaterial({ color: color }));
 
                 // Attach track data for raycasting
-                // Find the original track object to attach
-                const originalTrack = fTracks.find(t => t.particle_id === particleId);
                 if (originalTrack) {
                     mesh.userData = { track: originalTrack };
                 }
@@ -713,7 +767,16 @@
             if (showCalo) {
                 const scaleMode = document.getElementById('cfg-calo-mode').value;
                 fCalo.forEach((hit) => {
-                    const mat = new THREE.MeshBasicMaterial({ color: getColor(hit.particle_id), opacity: 0.7, transparent: true });
+                    // Color logic: Grey if not associated with a reco track
+                    let color = getColor(hit.particle_id);
+
+                    if (greyNonReco) {
+                        if (!recoParticleIds.has(hit.particle_id)) {
+                            color = 0x888888;
+                        }
+                    }
+
+                    const mat = new THREE.MeshBasicMaterial({ color: color, opacity: 0.7, transparent: true });
                     const mesh = new THREE.Mesh(caloGeometry, mat);
                     mesh.position.set(hit.x, hit.y, hit.z);
 
@@ -731,6 +794,10 @@
                     }
 
                     mesh.scale.set(scale, scale, scale);
+
+                    // Attach data for raycasting
+                    mesh.userData = { caloHit: hit };
+
                     caloGroup.add(mesh);
                 });
             }
@@ -793,7 +860,13 @@
             }
         });
 
+        trackSourceSelect.addEventListener('change', (e) => {
+            currentTrackSource = e.target.value;
+            loadEvent(availableEvents[currentEventIndex]);
+        });
+
         showTracksCheck.addEventListener('change', () => drawEvent());
+        greyRecoCheck.addEventListener('change', () => drawEvent());
         showCaloCheck.addEventListener('change', () => drawEvent());
         showRawHitsCheck.addEventListener('change', () => drawEvent());
 
@@ -853,6 +926,32 @@
 
         // --- CLICK INTERACTION ---
 
+        // Mouse Move for Cursor Change
+        window.addEventListener('mousemove', onMouseMove, false);
+
+        function onMouseMove(event) {
+            // Ignore if over UI
+            if (event.target.closest('#ui-container') || event.target.closest('#track-popup')) {
+                document.body.style.cursor = 'default';
+                return;
+            }
+
+            mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+            mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+
+            raycaster.setFromCamera(mouse, camera);
+
+            // Check intersection with tracks AND calo hits
+            const objectsToTest = [...tracksGroup.children, ...caloGroup.children];
+            const intersects = raycaster.intersectObjects(objectsToTest);
+
+            if (intersects.length > 0) {
+                document.body.style.cursor = 'pointer';
+            } else {
+                document.body.style.cursor = 'default';
+            }
+        }
+
         window.addEventListener('click', onMouseClick, false);
 
         function onMouseClick(event) {
@@ -865,64 +964,102 @@
 
             // 2. Cast ray
             raycaster.setFromCamera(mouse, camera);
-            const intersects = raycaster.intersectObjects(tracksGroup.children);
+
+            // Intersect both tracks and calo hits
+            const objectsToTest = [...tracksGroup.children, ...caloGroup.children];
+            const intersects = raycaster.intersectObjects(objectsToTest);
 
             if (intersects.length > 0) {
-                // Found a track!
+                // Found something!
                 const selectedMesh = intersects[0].object;
-                const trackData = selectedMesh.userData.track;
 
-                if (trackData) {
-                    showPopup(event.clientX, event.clientY, trackData);
+                if (selectedMesh.userData.track) {
+                    showPopup(event.clientX, event.clientY, selectedMesh.userData.track, 'track');
+                } else if (selectedMesh.userData.caloHit) {
+                    // Try to find associated track
+                    const hit = selectedMesh.userData.caloHit;
+                    // We need to search in the tracksGroup children userData to find the track with same particle_id
+                    // But we have fTracks available in drawEvent scope... wait, we are in global scope here.
+                    // We need access to the current event data.
+
+                    // Better approach: Find track in eventData.tracks
+                    let associatedTrack = null;
+                    if (eventData.tracks) {
+                        associatedTrack = eventData.tracks.find(t => t.particle_id === hit.particle_id);
+                    }
+
+                    if (associatedTrack) {
+                        // Show track popup but maybe indicate it was clicked via calo? 
+                        // User asked for "same information as their connected tracks"
+                        showPopup(event.clientX, event.clientY, associatedTrack, 'track');
+                    } else {
+                        // Fallback to calo info
+                        showPopup(event.clientX, event.clientY, hit, 'calo');
+                    }
                 }
             } else {
                 hidePopup();
             }
         }
 
-        function showPopup(x, y, data) {
+        function showPopup(x, y, data, type) {
             const popup = document.getElementById('track-popup');
             popup.style.left = (x + 15) + 'px';
             popup.style.top = (y + 15) + 'px';
             popup.style.display = 'block';
 
-            let recoHtml = '<em>No Reco Track</em>';
-            if (data.reco_info && data.reco_info.has_reco) {
-                recoHtml = `
-                    <strong>d0:</strong> ${data.reco_info.d0.toFixed(3)}<br>
-                    <strong>z0:</strong> ${data.reco_info.z0.toFixed(3)}<br>
-                    <strong>phi:</strong> ${data.reco_info.phi.toFixed(3)}<br>
-                    <strong>theta:</strong> ${data.reco_info.theta.toFixed(3)}<br>
-                    <strong>qop:</strong> ${data.reco_info.qop.toFixed(3)}
+            if (type === 'track') {
+                let recoHtml = '<em>No Reco Track</em>';
+                if (data.reco_info && data.reco_info.has_reco) {
+                    recoHtml = `
+                        <strong>d0:</strong> ${data.reco_info.d0.toFixed(3)}<br>
+                        <strong>z0:</strong> ${data.reco_info.z0.toFixed(3)}<br>
+                        <strong>phi:</strong> ${data.reco_info.phi.toFixed(3)}<br>
+                        <strong>theta:</strong> ${data.reco_info.theta.toFixed(3)}<br>
+                        <strong>qop:</strong> ${data.reco_info.qop.toFixed(3)}
+                    `;
+                }
+
+                let caloHtml = `<strong>Calo Hits:</strong> ${data.calo_hits ? data.calo_hits.length : 0}`;
+                if (data.calo_hits && data.calo_hits.length > 0) {
+                    const totalE = data.calo_hits.reduce((sum, h) => sum + h.energy, 0);
+                    caloHtml += ` (Total E: ${totalE.toFixed(4)})<br>`;
+
+                    caloHtml += `<span class="toggle-btn" onclick="toggleCaloList()">[Show/Hide Details]</span>`;
+                    caloHtml += `<div id="popup-calo-list" class="calo-list">`;
+                    data.calo_hits.forEach(h => {
+                        caloHtml += `<div>E: ${h.energy.toFixed(4)} (${h.detector})</div>`;
+                    });
+                    caloHtml += `</div>`;
+                }
+
+                popup.innerHTML = `
+                    <div style="margin-bottom:8px; border-bottom:1px solid #555; padding-bottom:5px;">
+                        <strong>Particle ID:</strong> ${data.particle_id}<br>
+                        <strong>PDG:</strong> ${data.pdg_id}<br>
+                        <strong>Truth pT:</strong> ${data.pT.toFixed(2)}
+                    </div>
+                    <div style="margin-bottom:8px;">
+                        ${recoHtml}
+                    </div>
+                    <div>
+                        ${caloHtml}
+                    </div>
+                `;
+            } else if (type === 'calo') {
+                // Calo Hit Popup
+                popup.innerHTML = `
+                    <div style="margin-bottom:8px; border-bottom:1px solid #555; padding-bottom:5px;">
+                        <strong>Calorimeter Hit</strong>
+                    </div>
+                    <div>
+                        <strong>Energy:</strong> ${data.energy.toFixed(4)}<br>
+                        <strong>Position:</strong> (${data.x.toFixed(1)}, ${data.y.toFixed(1)}, ${data.z.toFixed(1)})<br>
+                        <strong>Particle ID:</strong> ${data.particle_id}<br>
+                        <strong>PDG:</strong> ${data.pdg_id}
+                    </div>
                 `;
             }
-
-            let caloHtml = `<strong>Calo Hits:</strong> ${data.calo_hits ? data.calo_hits.length : 0}`;
-            if (data.calo_hits && data.calo_hits.length > 0) {
-                const totalE = data.calo_hits.reduce((sum, h) => sum + h.energy, 0);
-                caloHtml += ` (Total E: ${totalE.toFixed(4)})<br>`;
-
-                caloHtml += `<span class="toggle-btn" onclick="toggleCaloList()">[Show/Hide Details]</span>`;
-                caloHtml += `<div id="popup-calo-list" class="calo-list">`;
-                data.calo_hits.forEach(h => {
-                    caloHtml += `<div>E: ${h.energy.toFixed(4)} (${h.detector})</div>`;
-                });
-                caloHtml += `</div>`;
-            }
-
-            popup.innerHTML = `
-                <div style="margin-bottom:8px; border-bottom:1px solid #555; padding-bottom:5px;">
-                    <strong>Particle ID:</strong> ${data.particle_id}<br>
-                    <strong>PDG:</strong> ${data.pdg_id}<br>
-                    <strong>Truth pT:</strong> ${data.pT.toFixed(2)}
-                </div>
-                <div style="margin-bottom:8px;">
-                    ${recoHtml}
-                </div>
-                <div>
-                    ${caloHtml}
-                </div>
-            `;
         }
 
         function hidePopup() {

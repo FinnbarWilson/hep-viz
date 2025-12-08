@@ -10,7 +10,7 @@ app = typer.Typer()
 def view(
     path: Path = typer.Argument(..., help="Path to the data file or directory containing Parquet files."),
     port: int = typer.Option(8000, help="Port to run the server on."),
-    browser: bool = typer.Option(True, help="Automatically open the default web browser."),
+    browser: Optional[bool] = typer.Option(None, help="Automatically open the default web browser. Defaults to False in SSH sessions."),
 ):
     """
     Visualize HEP data from a local directory.
@@ -28,6 +28,16 @@ def view(
     # Pass the data path to the server process via an environment variable.
     # The server module will read this variable during startup.
     os.environ["HEP_VIZ_DATA_PATH"] = str(path.absolute())
+
+    # Handle browser default logic
+    if browser is None:
+        # Check for Common SSH environment variables
+        is_ssh = "SSH_CONNECTION" in os.environ or "SSH_CLIENT" in os.environ or "SSH_TTY" in os.environ
+        browser = not is_ssh
+        if not browser:
+            typer.echo("SSH session detected. Browser auto-open disabled.")
+            typer.echo(f"Open your local browser at: http://127.0.0.1:{port}")
+            typer.echo("Ensure you have set up port forwarding: ssh -L {port}:localhost:{port} user@host")
 
     if browser:
         import webbrowser

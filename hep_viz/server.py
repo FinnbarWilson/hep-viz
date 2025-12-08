@@ -73,7 +73,7 @@ async def get_events():
     return processor.get_event_list()
 
 @app.get("/api/event/{event_id}")
-async def get_event(event_id: str):
+async def get_event(event_id: str, track_source: str = "tracks"):
     """
     Get processed data for a specific event ID.
     Returns JSON containing particles, tracks, and hits.
@@ -81,7 +81,7 @@ async def get_event(event_id: str):
     if not processor:
         raise HTTPException(status_code=500, detail="DataProcessor not initialized")
     try:
-        data = processor.process_event(event_id)
+        data = processor.process_event(event_id, track_source=track_source)
         if "error" in data:
              raise HTTPException(status_code=404, detail=data["error"])
         return data

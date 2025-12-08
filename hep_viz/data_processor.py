@@ -26,7 +26,9 @@ class DataProcessor:
             self._init_from_memory(path)
         else:
             self.path = Path(path)
+            self.path = Path(path)
             self.files = {} # key -> list of {path, start, end}
+            self.track_sources = {} # source_name -> list of {path, start, end}
             self.load_data()
 
     def load_data(self):
@@ -48,35 +50,71 @@ class DataProcessor:
         all_parquet = list(self.path.rglob("*.parquet"))
         all_parquet = [p for p in all_parquet if "val_loss" not in p.name]
 
-        for key in keys:
-            self.files[key] = []
-            # 1. Try matching filename directly
-            matches = [p for p in all_parquet if key in p.name]
-            
-            # 2. If no filename match, try matching parent directory name
-            if not matches:
-                matches = [p for p in all_parquet if key in p.parent.name]
-            
-            if matches:
-                print(f"Found {len(matches)} files for {key}")
-                for p in matches:
-                    # Try to parse event range from filename: events(\d+)-(\d+)
-                    # Example: hard_scatter.ttbar.v1.truth.particles.events0-9.parquet
-                    match = re.search(r'events(\d+)-(\d+)', p.name)
-                    start_evt, end_evt = -1, -1
-                    if match:
-                        start_evt = int(match.group(1))
-                        end_evt = int(match.group(2))
-                    
-                    self.files[key].append({
-                        "path": p,
-                        "start": start_evt,
-                        "end": end_evt
-                    })
+        # 1. Identify all 'keys' that start with 'tracks' present in the dataset
+        potential_sources = set()
+        for p in all_parquet:
+             # Check parent directory name
+             parent = p.parent.name
+             if parent.startswith("tracks"):
+                 potential_sources.add(parent)
+             # Check filename if flat structure (less common for multi-source)
+             if p.name.startswith("tracks") and "event" in p.name:
+                  pass
+
+        if not potential_sources:
+             potential_sources.add('tracks')
+
+        # Load non-track keys normally
+        for key in ['particles', 'tracker_hits', 'calo_hits']:
+            self._load_file_list(key, all_parquet)
+
+        # Load track sources
+        for source in potential_sources:
+             self.track_sources[source] = []
+             self._load_file_list(source, all_parquet, self.track_sources[source])
+
+    def _load_file_list(self, key, all_parquet, target_list=None):
+        """Helper to load files for a given key/source."""
+        if target_list is None:
+             self.files[key] = []
+             target_list = self.files[key]
+
+        # 0. Prioritize exact parent directory match (Best for multi-track folders)
+        matches = [p for p in all_parquet if key == p.parent.name]
+
+        # 1. If no parent match, try matching filename directly (Legacy/Flat structure)
+        if not matches:
+             matches = [p for p in all_parquet if key in p.name]
+        
+        # 2. If valid matches found (either way)
+        if matches:
+            print(f"Found {len(matches)} files for {key}")
+            for p in matches:
+                # Try to parse event range from filename: events(\d+)-(\d+)
+                start_evt, end_evt = -1, -1
                 
-                # Sort by start event to ensure logical order
-                self.files[key].sort(key=lambda x: x['start'])
-            else:
+                # Pattern 1: Range (eventsX-Y)
+                match_range = re.search(r'events(\d+)-(\d+)', p.name)
+                if match_range:
+                    start_evt = int(match_range.group(1))
+                    end_evt = int(match_range.group(2))
+                
+                # Pattern 2: Single Event (event_N)
+                match_single = re.search(r'event_(\d+)', p.name)
+                if match_single and start_evt == -1:
+                    start_evt = int(match_single.group(1))
+                    end_evt = start_evt
+                
+                target_list.append({
+                    "path": p,
+                    "start": start_evt,
+                    "end": end_evt
+                })
+            
+            # Sort by start event to ensure logical order
+            target_list.sort(key=lambda x: x['start'])
+        else:
+            if not key.startswith("tracks"): 
                 print(f"Warning: Could not find file for {key}")
 
     def _init_from_memory(self, data: dict):
@@ -135,28 +173,46 @@ class DataProcessor:
         """
         if self.memory_data:
             events = sorted(list(self.event_index_map.keys()))
-            return {"events": events}
+            return {"events": events, "track_sources": ["default"]}
+
+        # Helper to get event IDs from a list of files
+        def get_ids_from_files(file_list):
+             ids = set()
+             for file_info in file_list:
+                if file_info['start'] != -1 and file_info['end'] != -1:
+                    ids.update(range(file_info['start'], file_info['end'] + 1))
+                else:
+                    try:
+                        df = pd.read_parquet(file_info['path'], columns=['event_id'])
+                        ids.update(df['event_id'].unique().tolist())
+                    except: 
+                        pass
+             return ids
 
         if 'particles' in self.files and self.files['particles']:
-            all_events = set()
-            try:
-                for file_info in self.files['particles']:
-                    # Optimization: if range is known from filename, just add the range
-                    if file_info['start'] != -1 and file_info['end'] != -1:
-                        # ranges in filenames are usually inclusive
-                        all_events.update(range(file_info['start'], file_info['end'] + 1))
-                    else:
-                        # Fallback: read file to find event IDs
-                        df = pd.read_parquet(file_info['path'], columns=['event_id'])
-                        all_events.update(df['event_id'].unique().tolist())
-                
-                return {"events": sorted(list(all_events))}
-            except Exception as e:
-                print(f"Error reading event list: {e}")
-                return {"events": []}
-        return {"events": []}
+            all_events = get_ids_from_files(self.files['particles'])
+            
+            # Available track sources
+            sources = list(self.track_sources.keys())
+            if not sources:
+                 sources = []
+            else:
+                 # Ensure 'tracks' is first if exists
+                 if 'tracks' in sources:
+                      sources.remove('tracks')
+                      sources.insert(0, 'tracks')
+            
+            return {"events": sorted(list(all_events)), "track_sources": sources}
+        return {"events": [], "track_sources": []}
 
-    def process_event(self, event_id: str):
+    def process_event(self, event_id: str, track_source: str = "tracks"):
+        """
+        Load and process data for a specific event ID.
+        Args:
+            event_id (str): The event ID.
+            track_source (str): The specific track source key to load (e.g. 'tracks', 'tracks_algo').
+                                Defaults to 'tracks'.
+        """
         """
         Load and process data for a specific event ID.
         Returns a dictionary with 'tracks', 'calo_hits', 'all_tracker_hits', and 'metadata'.
@@ -208,24 +264,23 @@ class DataProcessor:
                 return {"error": "No particle data found"}
 
             # Helper to find correct file based on event ID
-            def get_file_for_event(key, event_id):
-                if key not in self.files:
+            def get_file_for_event(source_list, event_id):
+                if not source_list:
                     return None
                 
                 # 1. Check ranges
-                for f in self.files[key]:
+                for f in source_list:
                     if f['start'] <= event_id <= f['end']:
                         return f['path']
                 
-                # 2. Fallback: if ranges are unknown (-1), check all files (slow)
-                # Ideally, we should avoid this by ensuring filenames have ranges.
-                for f in self.files[key]:
+                # 2. Fallback
+                for f in source_list:
                     if f['start'] == -1:
-                         if len(self.files[key]) == 1:
+                         if len(source_list) == 1:
                              return f['path']
                 return None
 
-            p_path = get_file_for_event('particles', n)
+            p_path = get_file_for_event(self.files.get('particles'), n)
             if not p_path:
                  return {"error": f"Event {n} not found in particle files"}
 
@@ -233,17 +288,23 @@ class DataProcessor:
             particles = self._load_parquet_event(p_path, n)
             
             tracker_hits = pd.DataFrame()
-            th_path = get_file_for_event('tracker_hits', n)
+            th_path = get_file_for_event(self.files.get('tracker_hits'), n)
             if th_path:
                 tracker_hits = self._load_parquet_event(th_path, n)
 
             calo_hits = pd.DataFrame()
-            ch_path = get_file_for_event('calo_hits', n)
+            ch_path = get_file_for_event(self.files.get('calo_hits'), n)
             if ch_path:
                 calo_hits = self._load_parquet_event(ch_path, n)
 
             tracks_df = pd.DataFrame()
-            t_path = get_file_for_event('tracks', n)
+            # Use specific track source
+            current_track_list = self.track_sources.get(track_source)
+            # Fallback if specific source not found (to avoid crash), though UI should prevent this
+            if current_track_list is None and 'tracks' in self.track_sources:
+                 current_track_list = self.track_sources['tracks']
+            
+            t_path = get_file_for_event(current_track_list, n)
             if t_path:
                 tracks_df = self._load_parquet_event(t_path, n)
 
