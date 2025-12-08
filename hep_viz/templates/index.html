@@ -268,16 +268,15 @@
 
             <div
                 style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 15px; background: #222; padding: 8px; border-radius: 8px;">
-                <div style="display: flex; align-items: center;">
-                    <span style="font-weight: bold; margin-right: 8px;">Event:</span>
-                    <select id="event-select"
-                        style="padding: 4px; border-radius: 4px; background: #444; color: #eee; border: 1px solid #666; width: 70px;">
-                        <!-- Populated via JS -->
-                    </select>
-                </div>
-                <div>
-                    <button id="prev-btn" disabled style="padding: 4px 10px;">&lt;</button>
-                    <button id="next-btn" disabled style="padding: 4px 10px;">&gt;</button>
+                <div style="display: flex; align-items: center; gap: 8px;">
+                    <span style="font-weight: bold; margin-right: 4px;">Event:</span>
+                    <input type="text" id="event-input" placeholder="ID"
+                        style="padding: 4px; border-radius: 4px; background: #444; color: #eee; border: 1px solid #666; width: 60px;">
+
+                    <div style="display: flex; gap: 4px;">
+                        <button id="prev-btn" disabled style="padding: 4px 10px; cursor: pointer;">&lt;</button>
+                        <button id="next-btn" disabled style="padding: 4px 10px; cursor: pointer;">&gt;</button>
+                    </div>
                 </div>
             </div>
 
@@ -518,15 +517,11 @@
                     currentTrackSource = 'tracks'; // Fallback
                 }
 
-                // Populate Dropdown
-                const eventSelect = document.getElementById('event-select');
-                eventSelect.innerHTML = '';
-                availableEvents.forEach(id => {
-                    const opt = document.createElement('option');
-                    opt.value = id;
-                    opt.innerText = id;
-                    eventSelect.appendChild(opt);
-                });
+                // No dropdown population needed for Input mode
+                const eventInput = document.getElementById('event-input');
+                if (availableEvents.length > 0) {
+                    eventInput.value = availableEvents[0];
+                }
 
                 if (availableEvents.length > 0) {
                     currentEventIndex = 0;
@@ -827,9 +822,9 @@
             const eventId = availableEvents[currentEventIndex];
             eventDisplay.innerText = `Event: ${eventId}`; // Fallback
 
-            // Update Select
-            const eventSelect = document.getElementById('event-select');
-            eventSelect.value = eventId;
+            // Update Input
+            const eventInput = document.getElementById('event-input');
+            eventInput.value = eventId;
 
             prevBtn.disabled = (currentEventIndex === 0);
             nextBtn.disabled = (currentEventIndex === availableEvents.length - 1);
@@ -850,14 +845,29 @@
             }
         });
 
-        const eventSelect = document.getElementById('event-select');
-        eventSelect.addEventListener('change', () => {
-            const selectedId = eventSelect.value;
-            const index = availableEvents.indexOf(parseInt(selectedId));
-            if (index !== -1) {
-                currentEventIndex = index;
-                loadEvent(selectedId);
+        const eventInput = document.getElementById('event-input');
+
+        function jumpToEvent() {
+            const val = eventInput.value;
+            // Check if input is in availableEvents (string or int matching)
+            // Ideally we check presence roughly.
+            // If strict validation is needed:
+            // const idx = availableEvents.findIndex(e => e.toString() === val);
+
+            // For flexibility, let's try to match exactly
+            let idx = availableEvents.indexOf(val);
+            if (idx === -1) idx = availableEvents.indexOf(parseInt(val));
+
+            if (idx !== -1) {
+                currentEventIndex = idx;
+                loadEvent(availableEvents[currentEventIndex]);
+            } else {
+                alert(`Event ${val} not found in available list.`);
             }
+        }
+
+        eventInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') jumpToEvent();
         });
 
         trackSourceSelect.addEventListener('change', (e) => {
@@ -972,9 +982,10 @@
             if (intersects.length > 0) {
                 // Found something!
                 const selectedMesh = intersects[0].object;
+                const color = selectedMesh.material.color;
 
                 if (selectedMesh.userData.track) {
-                    showPopup(event.clientX, event.clientY, selectedMesh.userData.track, 'track');
+                    showPopup(event.clientX, event.clientY, selectedMesh.userData.track, 'track', color);
                 } else if (selectedMesh.userData.caloHit) {
                     // Try to find associated track
                     const hit = selectedMesh.userData.caloHit;
@@ -991,23 +1002,31 @@
                     if (associatedTrack) {
                         // Show track popup but maybe indicate it was clicked via calo? 
                         // User asked for "same information as their connected tracks"
-                        showPopup(event.clientX, event.clientY, associatedTrack, 'track');
+                        showPopup(event.clientX, event.clientY, associatedTrack, 'track', color);
                     } else {
                         // Fallback to calo info
-                        showPopup(event.clientX, event.clientY, hit, 'calo');
+                        showPopup(event.clientX, event.clientY, hit, 'calo', color);
                     }
                 }
             } else {
                 hidePopup();
             }
         }
-
-        function showPopup(x, y, data, type) {
+        function showPopup(x, y, data, type, color) {
             const popup = document.getElementById('track-popup');
+            const content = document.getElementById('popup-content');
+
+            // Set border color for all sides
+            const borderColor = color ? `#${color.getHexString()}` : '#00ff00';
+            popup.style.border = `1px solid ${borderColor}`;
+            popup.style.borderLeft = `4px solid ${borderColor}`; // Keep the thick accent on left
+
+
             popup.style.left = (x + 15) + 'px';
             popup.style.top = (y + 15) + 'px';
             popup.style.display = 'block';
 
+            let html = '';
             if (type === 'track') {
                 let recoHtml = '<em>No Reco Track</em>';
                 if (data.reco_info && data.reco_info.has_reco) {

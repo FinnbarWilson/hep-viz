@@ -116,6 +116,26 @@ Once the server starts, `hep-viz` opens an interactive 3D visualization in your 
 4.  **`calo_hits`**: Energy deposits in the calorimeter.
     *   *Columns*: `event_id`, `x`, `y`, `z`, `contrib_particle_ids` (list), `contrib_energies` (list)
 
+### Multi-Track Support
+
+`hep-viz` supports visualizing tracks from multiple reconstruction algorithms side-by-side.
+
+**Directory Structure:**
+To use this, simply add multiple track directories to your data folder. The folder names must start with `tracks`.
+
+```
+my_data/
+├── particles/       # Truth particles
+├── tracker_hits/    # Hits
+├── calo_hits/       # Calorimeter
+├── tracks/          # Default tracks
+├── tracks_gnn/      # Tracks from GNN algorithm
+└── tracks_ckf/      # Tracks from CKF algorithm
+```
+
+**UI Selection:**
+When you load this dataset, a dropdown menu will appear in the specific UI allowing you to switch between "tracks", "tracks_gnn", and "tracks_ckf" instantly.
+
 ### File Naming (CLI)
 For the CLI to automatically detect files, they should contain the category name (e.g., `my_particles.parquet`). You can split data across multiple files using the pattern `events<start>-<end>` (e.g., `particles.events0-999.parquet`).
 

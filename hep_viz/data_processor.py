@@ -20,15 +20,13 @@ class DataProcessor:
         """
         self.files = {}
         self.memory_data = {}
+        self.track_sources = {}
         self.event_index_map = {} # event_id -> {key: row_index}
 
         if isinstance(path, dict):
             self._init_from_memory(path)
         else:
             self.path = Path(path)
-            self.path = Path(path)
-            self.files = {} # key -> list of {path, start, end}
-            self.track_sources = {} # source_name -> list of {path, start, end}
             self.load_data()
 
     def load_data(self):
@@ -127,7 +125,16 @@ class DataProcessor:
         
         # Create an index map for fast access
         if 'particles' in self.memory_data:
-            print("Indexing in-memory data...")
+            # 1. Identify Track Sources in Memory Data
+            for key in self.memory_data.keys():
+                if key.startswith("tracks"):
+                    self.track_sources[key] = [] # Placeholder, not used for memory mode but key existence matters
+            
+            # Ensure 'tracks' exists if no other sources found (or if it exists explicitly)
+            if not self.track_sources and 'tracks' in self.memory_data:
+                 self.track_sources['tracks'] = []
+
+            print(f"Indexing in-memory data... Found track sources: {list(self.track_sources.keys())}")
             try:
                 # Index particles
                 particles = self.memory_data['particles']
@@ -137,8 +144,10 @@ class DataProcessor:
                         self.event_index_map[eid] = {}
                     self.event_index_map[eid]['particles'] = i
                 
-                # Index other keys
-                for key in ['tracks', 'tracker_hits', 'calo_hits']:
+                # Index other keys (including all track sources)
+                keys_to_index = ['tracker_hits', 'calo_hits'] + list(self.track_sources.keys())
+                
+                for key in keys_to_index:
                     if key in self.memory_data:
                         for i, row in enumerate(self.memory_data[key]):
                             eid = row['event_id']
@@ -171,10 +180,6 @@ class DataProcessor:
         """
         Return a dictionary containing a list of available event IDs.
         """
-        if self.memory_data:
-            events = sorted(list(self.event_index_map.keys()))
-            return {"events": events, "track_sources": ["default"]}
-
         # Helper to get event IDs from a list of files
         def get_ids_from_files(file_list):
              ids = set()
@@ -188,6 +193,16 @@ class DataProcessor:
                     except: 
                         pass
              return ids
+
+        if self.memory_data:
+            events = sorted(list(self.event_index_map.keys()))
+            sources = list(self.track_sources.keys())
+            if not sources: sources = []
+            else:
+                 if 'tracks' in sources:
+                      sources.remove('tracks')
+                      sources.insert(0, 'tracks')
+            return {"events": events, "track_sources": sources}
 
         if 'particles' in self.files and self.files['particles']:
             all_events = get_ids_from_files(self.files['particles'])
@@ -253,9 +268,9 @@ class DataProcessor:
 
             # Reco Tracks
             tracks_df = pd.DataFrame()
-            if 'tracks' in idx_map:
-                t_idx = idx_map['tracks']
-                t_data = self.memory_data['tracks'][t_idx]
+            if track_source in idx_map:
+                t_idx = idx_map[track_source]
+                t_data = self.memory_data[track_source][t_idx]
                 tracks_df = pd.DataFrame(t_data)
 
         else:
