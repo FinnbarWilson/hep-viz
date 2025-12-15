@@ -4,6 +4,7 @@ import pandas as pd
 import numpy as np
 import glob
 import re
+import fastjet
 
 class DataProcessor:
     """
@@ -599,6 +600,19 @@ class DataProcessor:
                         'points': points
                     })
 
+        # Calculate Primary Vertex (Mean of particle production vertices)
+        primary_vertex = [0.0, 0.0, 0.0]
+        if not particles.empty:
+            v_cols = [c for c in ['vx', 'vy', 'vz'] if c in particles.columns]
+            if v_cols:
+                 # Take mean of available vertex columns
+                 means = particles[v_cols].mean()
+                 primary_vertex = [
+                     float(means.get('vx', 0.0)),
+                     float(means.get('vy', 0.0)),
+                     float(means.get('vz', 0.0))
+                 ]
+
         # 7. Process Calo Hits
         event_calo_hits = []
         if not calo_hits.empty and 'contrib_particle_ids' in calo_hits.columns:
@@ -630,6 +644,113 @@ class DataProcessor:
         if hasattr(self, 'graph_data') and n in self.graph_data:
              graph_response = self.graph_data[n]
 
+        # 9. Jet Clustering
+        jet_data = {"truth": [], "reco": []}
+        if fastjet:
+            # --- Truth Jets (from particles) ---
+            truth_vectors = []
+            if not particles.empty:
+                # Ensure we have momentum columns
+                if {'px', 'py', 'pz'}.issubset(particles.columns):
+                    for _, p in particles.iterrows():
+                        px, py, pz = p['px'], p['py'], p['pz']
+                        # Calculate energy if missing (assume massless if not provided)
+                        e = p['energy'] if 'energy' in p else np.sqrt(px**2 + py**2 + pz**2)
+                        truth_vectors.append(fastjet.PseudoJet(px, py, pz, e))
+                elif {'pT', 'phi', 'eta'}.issubset(particles.columns):
+                     for _, p in particles.iterrows():
+                        pt, phi, eta = p['pT'], p['phi'], p['eta']
+                        e = p['energy'] if 'energy' in p else pt * np.cosh(eta) # Massless approx
+                        vec = fastjet.PseudoJet()
+                        vec.reset_PtYPhiM(pt, eta, phi, 0.0) # Massless
+                        truth_vectors.append(vec)
+
+            if truth_vectors:
+                jet_def = fastjet.JetDefinition(fastjet.antikt_algorithm, 0.4)
+                cluster_seq = fastjet.ClusterSequence(truth_vectors, jet_def)
+                inclusive_jets = cluster_seq.inclusive_jets(5.0)
+                
+                for j in inclusive_jets:
+                     jet_data["truth"].append({
+                         "pt": j.pt(),
+                         "eta": j.eta(),
+                         "phi": j.phi(),
+                         "energy": j.e(),
+                         "n_constituents": len(j.constituents())
+                     })
+
+            # --- Reco Jets (Tracks + Calo) ---
+            reco_vectors = []
+            reco_source_objects = [] # Parallel list to store source data
+
+            # 1. From Reco Tracks
+            for t in event_tracks:
+                if t['reco_info'].get('has_reco'):
+                     info = t['reco_info']
+                     qop = info.get('qop', 0.0)
+                     if abs(qop) > 1e-9:
+                         p = abs(1.0 / qop)
+                         theta = info.get('theta', 0.0)
+                         phi = info.get('phi', 0.0)
+                         
+                         pt = p * np.sin(theta)
+                         pz = p * np.cos(theta)
+                         px = pt * np.cos(phi)
+                         py = pt * np.sin(phi)
+                         e = np.sqrt(p**2 + 0.13957**2) 
+                         
+                         pj = fastjet.PseudoJet(px, py, pz, e)
+                         pj.set_user_index(len(reco_source_objects))
+                         reco_vectors.append(pj)
+                         reco_source_objects.append({'type': 'track', 'data': t})
+
+            # 2. From Calo Hits
+            for c in event_calo_hits:
+                e = c['energy']
+                if e > 0.1: 
+                    dist = np.sqrt(c['x']**2 + c['y']**2 + c['z']**2)
+                    if dist > 0:
+                        px = (c['x'] / dist) * e
+                        py = (c['y'] / dist) * e
+                        pz = (c['z'] / dist) * e
+                        pj = fastjet.PseudoJet(px, py, pz, e)
+                        pj.set_user_index(len(reco_source_objects))
+                        reco_vectors.append(pj)
+                        reco_source_objects.append({'type': 'calo', 'data': c})
+            
+            if reco_vectors:
+                 jet_def = fastjet.JetDefinition(fastjet.antikt_algorithm, 0.4)
+                 cluster_seq = fastjet.ClusterSequence(reco_vectors, jet_def)
+                 inclusive_jets = cluster_seq.inclusive_jets(5.0)
+                 
+                 for j in inclusive_jets:
+                     # Calculate max extent
+                     max_extent = 0.0
+                     for c in j.constituents():
+                         idx = c.user_index()
+                         if idx >= 0 and idx < len(reco_source_objects):
+                             obj = reco_source_objects[idx]
+                             if obj['type'] == 'track':
+                                 # Find max R of track points
+                                 for p in obj['data']['points']:
+                                     r = np.sqrt(p['x']**2 + p['y']**2 + p['z']**2)
+                                     if r > max_extent: max_extent = r
+                             elif obj['type'] == 'calo':
+                                 d = obj['data']
+                                 r = np.sqrt(d['x']**2 + d['y']**2 + d['z']**2)
+                                 if r > max_extent: max_extent = r
+                     
+                     if max_extent == 0.0: max_extent = 1000.0 # Default fallback if no hits?
+
+                     jet_data["reco"].append({
+                         "pt": j.pt(),
+                         "eta": j.eta(),
+                         "phi": j.phi(),
+                         "energy": j.e(),
+                         "n_constituents": len(j.constituents()),
+                         "max_extent": max_extent
+                     })
+
         return {
             "metadata": {
                 "event_id": int(n),
@@ -637,8 +758,11 @@ class DataProcessor:
                 "has_calo": bool(event_calo_hits),
                 "has_pdg": True, # Always true if particles exist
                 "has_volumes": has_volumes,
-                "has_graph": bool(graph_response)
+                "has_graph": bool(graph_response),
+                "has_jets": bool(jet_data["truth"] or jet_data["reco"])
             },
+            "jets": jet_data,
+            "vertex": primary_vertex,
             "tracks": event_tracks,
             "calo_hits": event_calo_hits,
             "all_tracker_hits": all_event_tracker_hits,

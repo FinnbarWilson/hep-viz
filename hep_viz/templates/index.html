@@ -298,6 +298,17 @@
                     tracks</label>
                 <label id="lbl-calo"><input type="checkbox" id="show-calo-check" checked> Show Calorimeter</label>
                 <label id="lbl-raw"><input type="checkbox" id="show-raw-hits-check"> Show Raw Hits</label>
+
+                <div id="jet-ui-container" style="margin-top: 5px; border-top: 1px dashed #555; padding-top: 5px;">
+                    <label id="lbl-jets"><input type="checkbox" id="show-jets-check"> Show Jets</label>
+                    <div id="jet-config" style="margin-left: 20px;">
+                        <label style="font-size: 12px; display: inline-block;">Source:</label>
+                        <select id="jet-source-select" style="width: 100px; font-size: 12px; padding: 2px;">
+                            <option value="truth">Truth</option>
+                            <option value="reco">Reco</option>
+                        </select>
+                    </div>
+                </div>
             </div>
 
             <div class="ui-section">
@@ -375,6 +386,7 @@
         let tracksGroup = new THREE.Group();
         let caloGroup = new THREE.Group();
         let rawHitsGroup = new THREE.Group();
+        let jetsGroup = new THREE.Group();
 
         const colors = [
             0x4287f5, 0xf54242, 0x42f56a, 0xf5a442, 0xa442f5,
@@ -404,6 +416,8 @@
         const greyRecoCheck = document.getElementById('grey-reco-check');
         const showCaloCheck = document.getElementById('show-calo-check');
         const showRawHitsCheck = document.getElementById('show-raw-hits-check');
+        const showJetsCheck = document.getElementById('show-jets-check');
+        const jetSourceSelect = document.getElementById('jet-source-select');
         const ptSlider = document.getElementById('pt-slider');
         const ptValueDisplay = document.getElementById('pt-value');
         const pdgIdSelect = document.getElementById('pdg-id-select');
@@ -462,6 +476,7 @@
             scene.add(tracksGroup);
             scene.add(caloGroup);
             scene.add(rawHitsGroup);
+            scene.add(jetsGroup);
 
             window.addEventListener('resize', onWindowResize, false);
             animate();
@@ -618,6 +633,8 @@
             const greyNonReco = greyRecoCheck.checked;
             const showCalo = showCaloCheck.checked;
             const showRawHits = showRawHitsCheck.checked;
+            const showJets = showJetsCheck.checked;
+            const jetSource = jetSourceSelect.value;
 
             // Get selected volumes
             const selectedVolumes = new Set();
@@ -627,6 +644,7 @@
             clearGroup(tracksGroup);
             clearGroup(caloGroup);
             clearGroup(rawHitsGroup);
+            clearGroup(jetsGroup);
 
             if (!eventData.tracks) { // Safety check
                 trackCountDisplay.innerText = "Tracks: 0";
@@ -772,6 +790,80 @@
                     rawHitsGroup.add(mesh);
                 });
             }
+
+            // Draw Jets
+            if (showJets && eventData.jets) {
+                const jets = eventData.jets[jetSource] || [];
+                // Use event vertex as origin (default 0,0,0)
+                const v = eventData.vertex || [0, 0, 0];
+                const startPos = new THREE.Vector3(v[0], v[1], v[2]);
+                const JET_START_OFFSET = 0; // Relative to vertex
+
+                jets.forEach(jet => {
+                    // Kinematics
+                    const pt = jet.pt;
+                    const eta = jet.eta;
+                    const phi = jet.phi;
+                    const energy = jet.energy;
+
+                    // Direction
+                    const theta = 2 * Math.atan(Math.exp(-eta));
+                    const vx = Math.cos(phi) * Math.sin(theta);
+                    const vy = Math.sin(phi) * Math.sin(theta);
+                    const vz = Math.cos(theta);
+                    const dir = new THREE.Vector3(vx, vy, vz).normalize();
+
+                    // Visual Properties
+                    // Length: Use max_extent (furthest hit) if available.
+                    // Fallback to log scale for Truth jets or if missing.
+                    let length;
+                    if (jet.max_extent && jet.max_extent > 0) {
+                        length = jet.max_extent;
+                    } else {
+                        // Heuristic for Truth Jets or missing extent
+                        // Boosted to be more visible/longer as requested
+                        length = Math.max(200, Math.log(1 + energy) * 500);
+                    }
+
+                    // Radius: Open angle corresponding to Jet Radius R.
+                    // Physics R=0.4 is standard, but visually this creates huge cones when extended.
+                    // Reduced to R=0.2 (approx 11 deg) for cleaner "CERN-style" visualization.
+                    const radius = length * Math.tan(0.2);
+
+                    // Geometry (Tip at +Y, Base at -Y)
+                    const geometry = new THREE.ConeGeometry(radius, length, 32, 1, true);
+
+                    const color = jetSource === 'truth' ? 0xffaa00 : 0x00aaff;
+                    const material = new THREE.MeshBasicMaterial({
+                        color: color,
+                        opacity: 0.5,
+                        transparent: true,
+                        side: THREE.DoubleSide,
+                        depthWrite: false
+                    });
+
+                    const mesh = new THREE.Mesh(geometry, material);
+
+                    // Orientation: 
+                    // ConeGeometry has Tip at +Y, Base at -Y.
+                    // We want Tip at Origin (Start) and Base Outwards.
+                    // So we align +Y (Tip) to -dir (Inwards) OR -Y (Base) to +dir (Outwards).
+                    // Align (0, -1, 0) [Base direction in local space] to dir [Outwards in world space].
+                    mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, -1, 0), dir);
+
+                    // Position: 
+                    // Tip is at `startPos` + `JET_START_OFFSET` * dir.
+                    // Center is at Tip + dir * (length/2).
+                    // New Tip Pos = startPos.
+                    // Center = startPos + dir * (length/2). (Given JET_START_OFFSET=0)
+
+                    const centerPos = startPos.clone().add(dir.clone().multiplyScalar(JET_START_OFFSET + length / 2));
+                    mesh.position.copy(centerPos);
+
+                    mesh.userData = { jet: jet, type: jetSource };
+                    jetsGroup.add(mesh);
+                });
+            }
         }
 
         function clearGroup(group) {
@@ -839,6 +931,8 @@
         greyRecoCheck.addEventListener('change', () => drawEvent());
         showCaloCheck.addEventListener('change', () => drawEvent());
         showRawHitsCheck.addEventListener('change', () => drawEvent());
+        showJetsCheck.addEventListener('change', () => drawEvent());
+        jetSourceSelect.addEventListener('change', () => drawEvent());
 
         document.getElementById('vol-select-all').addEventListener('change', (e) => {
             const checked = e.target.checked;
@@ -896,8 +990,8 @@
 
             raycaster.setFromCamera(mouse, camera);
 
-            // Check intersection with tracks AND calo hits
-            const objectsToTest = [...tracksGroup.children, ...caloGroup.children];
+            // Check intersection with tracks AND calo hits AND jets
+            const objectsToTest = [...tracksGroup.children, ...caloGroup.children, ...jetsGroup.children];
             const intersects = raycaster.intersectObjects(objectsToTest);
 
             if (intersects.length > 0) {
@@ -917,7 +1011,8 @@
 
             raycaster.setFromCamera(mouse, camera);
 
-            const objectsToTest = [...tracksGroup.children, ...caloGroup.children];
+            // Add jetsGroup to clickable objects
+            const objectsToTest = [...tracksGroup.children, ...caloGroup.children, ...jetsGroup.children];
             const intersects = raycaster.intersectObjects(objectsToTest);
 
             if (intersects.length > 0) {
@@ -938,6 +1033,8 @@
                     } else {
                         showPopup(event.clientX, event.clientY, hit, 'calo', color);
                     }
+                } else if (selectedMesh.userData.jet) {
+                    showPopup(event.clientX, event.clientY, selectedMesh.userData.jet, 'jet', color);
                 }
             } else {
                 hidePopup();
@@ -1012,6 +1109,19 @@
                         <strong>Position:</strong> (${data.x.toFixed(1)}, ${data.y.toFixed(1)}, ${data.z.toFixed(1)})<br>
                         <strong>Particle ID:</strong> ${data.particle_id}<br>
                         <strong>PDG:</strong> ${data.pdg_id}
+                    </div>
+                `;
+            } else if (type === 'jet') {
+                popup.innerHTML = `
+                    <div style="margin-bottom:8px; border-bottom:1px solid #555; padding-bottom:5px;">
+                        <strong>${data.type === 'truth' ? 'Truth' : 'Reco'} Jet</strong>
+                    </div>
+                    <div>
+                        <strong>pT:</strong> ${data.pt.toFixed(2)} GeV<br>
+                        <strong>Energy:</strong> ${data.energy.toFixed(2)} GeV<br>
+                        <strong>Eta:</strong> ${data.eta.toFixed(3)}<br>
+                        <strong>Phi:</strong> ${data.phi.toFixed(3)}<br>
+                        <strong>Constituents:</strong> ${data.n_constituents}
                     </div>
                 `;
             }
