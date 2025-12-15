@@ -1,0 +1,826 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>hep-viz: 3D Event Visualizer</title>
+    <style>
+        /* --- Global Styles --- */
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Inter", "Helvetica Neue", sans-serif;
+            margin: 0;
+            background-color: #111;
+            color: #eee;
+            overflow: hidden;
+            /* Hide scrollbars */
+        }
+
+        #canvas-container {
+            width: 100vw;
+            height: 100vh;
+            position: absolute;
+            top: 0;
+            left: 0;
+        }
+
+        /* --- UI Container & Layout --- */
+        #ui-container {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            z-index: 100;
+            background-color: rgba(0, 0, 0, 0.7);
+            padding: 15px;
+            border-radius: 12px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            max-width: 280px;
+            max-height: 90vh;
+            overflow-y: auto;
+        }
+
+        h2,
+        h3 {
+            margin: 0 0 10px 0;
+            padding-bottom: 5px;
+            border-bottom: 1px solid #444;
+        }
+
+        h3 {
+            font-size: 1.1em;
+            margin-top: 15px;
+        }
+
+        /* --- Controls & Inputs --- */
+        button {
+            font-size: 16px;
+            padding: 8px 15px;
+            margin: 0 5px;
+            border-radius: 8px;
+            border: 1px solid #666;
+            background-color: #333;
+            color: #eee;
+            cursor: pointer;
+            transition: background-color 0.2s;
+        }
+
+        button:hover {
+            background-color: #555;
+        }
+
+        button:disabled {
+            background-color: #222;
+            color: #555;
+            cursor: not-allowed;
+        }
+
+        input[type="checkbox"] {
+            margin-right: 8px;
+            vertical-align: middle;
+        }
+
+        input[type="range"] {
+            width: 100%;
+            margin-top: 2px;
+            margin-bottom: 8px;
+        }
+
+        select {
+            width: 100%;
+            padding: 4px;
+            background: #333;
+            color: #eee;
+            border: 1px solid #555;
+            border-radius: 4px;
+            margin-bottom: 10px;
+        }
+
+        label {
+            display: block;
+            margin: 5px 0;
+            font-size: 14px;
+            cursor: pointer;
+        }
+
+        /* --- UI Sections --- */
+        .ui-section {
+            margin-top: 15px;
+            border-top: 1px solid #444;
+            padding-top: 10px;
+        }
+
+        .ui-section h4 {
+            margin: 0 0 8px 0;
+            display: flex;
+            justify-content: space-between;
+            cursor: pointer;
+        }
+
+        .ui-section h4:hover {
+            color: #fff;
+        }
+
+        #toggle-menu-btn {
+            float: right;
+            font-size: 20px;
+            font-weight: bold;
+            font-family: monospace;
+            background: transparent;
+            border: none;
+            color: #eee;
+            cursor: pointer;
+            padding: 0 8px;
+            margin-top: -4px;
+            border-radius: 5px;
+        }
+
+        #toggle-menu-btn:hover {
+            background: transparent;
+        }
+
+        #ui-container.minimized #ui-content {
+            display: none;
+        }
+
+        .config-content {
+            display: none;
+            padding-left: 5px;
+        }
+
+        .config-content.open {
+            display: block;
+        }
+
+        .toggle-icon {
+            cursor: pointer;
+            font-weight: bold;
+        }
+
+        /* --- Overlays & Popups --- */
+        #info-box {
+            position: absolute;
+            bottom: 20px;
+            left: 20px;
+            z-index: 100;
+            font-size: 14px;
+            color: #aaa;
+        }
+
+        #loading-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.8);
+            z-index: 9999;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            color: #fff;
+            font-family: 'Segoe UI', sans-serif;
+        }
+
+        .spinner {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #3498db;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin-bottom: 15px;
+        }
+
+        @keyframes spin {
+            0% {
+                transform: rotate(0deg);
+            }
+
+            100% {
+                transform: rotate(360deg);
+            }
+        }
+
+        .hidden {
+            display: none !important;
+        }
+
+        /* --- Track Popup --- */
+        #track-popup {
+            display: none;
+            position: absolute;
+            background: rgba(0, 0, 0, 0.9);
+            border: 1px solid #00ff00;
+            padding: 10px;
+            border-radius: 5px;
+            z-index: 1000;
+            color: #eee;
+            font-family: monospace;
+            max-height: 300px;
+            overflow-y: auto;
+            width: 250px;
+            font-size: 13px;
+            box-shadow: 0 0 10px rgba(0, 255, 0, 0.2);
+        }
+
+        .calo-list {
+            display: none;
+            margin-top: 5px;
+            border-top: 1px solid #555;
+            padding-top: 5px;
+        }
+
+        .calo-list.open {
+            display: block;
+        }
+
+        .toggle-btn {
+            cursor: pointer;
+            color: #3498db;
+            text-decoration: underline;
+            font-size: 12px;
+        }
+    </style>
+</head>
+
+<body>
+    <div id="loading-overlay" class="hidden">
+        <div class="spinner"></div>
+        <h2 id="loading-text">Loading Event...</h2>
+    </div>
+
+    <div id="track-popup"></div>
+    <div id="canvas-container"></div>
+
+    <div id="ui-container">
+        <h2>hep-viz.Graph <button id="toggle-menu-btn">[–]</button></h2>
+
+        <div id="ui-content">
+
+            <!-- Simplified Graph View Header -->
+            <div
+                style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 15px; background: #222; padding: 8px; border-radius: 8px;">
+                <div style="display: flex; align-items: center; gap: 8px;">
+                    <span style="font-weight: bold; margin-right: 4px;">Event:</span>
+                    <input type="text" id="event-input" placeholder="ID"
+                        style="padding: 4px; border-radius: 4px; background: #444; color: #eee; border: 1px solid #666; width: 60px;">
+                    <div style="display: flex; gap: 4px;">
+                        <button id="prev-btn" disabled style="padding: 4px 10px; cursor: pointer;">&lt;</button>
+                        <button id="next-btn" disabled style="padding: 4px 10px; cursor: pointer;">&gt;</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Graph Mode Controls -->
+            <div class="ui-section" id="graph-controls-section">
+                <h4>Graph Controls</h4>
+                <div style="margin-bottom: 10px;">
+                    <label>Score Threshold: <span id="val-score">0.5</span></label>
+                    <input type="range" id="score-slider" min="0" max="1" step="0.01" value="0.5">
+
+                    <label style="margin-top: 5px;">pT Cut (GeV): <span id="val-pt">0.0</span></label>
+                    <input type="range" id="pt-slider" min="0" max="5" step="0.1" value="0.0">
+
+                    <label style="margin-top: 5px;">Color By:</label>
+                    <select id="graph-color-mode">
+                        <option value="truth">Truth (Green/Red)</option>
+                        <option value="score">Score (Heatmap)</option>
+                    </select>
+                </div>
+            </div>
+
+            <div class="ui-section">
+                <h4 id="config-header">Configuration</h4>
+                <div id="config-content" class="config-content open" style="display: block;">
+                    <label>Graph Edge Thickness: <span id="val-radius">0.5</span></label>
+                    <input type="range" id="cfg-radius" min="0.1" max="5" step="0.1" value="0.5">
+
+                    <label style="margin-top: 10px;">Track Thickness: <span id="val-thick">3</span></label>
+                    <input type="range" id="cfg-thickness" min="1" max="10" step="0.5" value="3">
+
+                    <label style="margin-top: 10px; cursor: pointer;">
+                        <input type="checkbox" id="cfg-grid-axes" checked> Show Grid & Axes
+                    </label>
+
+                    <label style="margin-top: 10px; cursor: pointer;">
+                        <input type="checkbox" id="show-tracks-check" checked> Show Truth Tracks
+                    </label>
+                </div>
+            </div>
+
+            <button id="exit-btn"
+                style="background: #c0392b; color: white; border: none; padding: 8px 12px; border-radius: 4px; cursor: pointer; font-size: 14px; width: 100%; margin-top: 10px;">Exit
+                hep-viz</button>
+        </div>
+    </div>
+
+    <div id="info-box">
+        Use Mouse: Rotate (Left Click + Drag) | Zoom (Scroll) | Pan (Right Click + Drag) || (X=Red, Y=Green, Z=Blue)
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+
+    <script>
+        // --- Global Variables ---
+        let scene, camera, renderer, controls, axesHelper, gridHelper;
+        let eventData = {};
+        let currentEventIndex = 0;
+        let availableEvents = [];
+
+        let tracksGroup = new THREE.Group();
+        let graphGroup = new THREE.Group();
+        let caloGroup = new THREE.Group(); // Placeholder for unified logic compatibility
+
+        // --- Config Defaults ---
+        let TRACK_THICKNESS = 3;
+        let RAW_HIT_RADIUS = 0.5; // Actually edge thickness here
+
+        // --- DOM Elements ---
+        const prevBtn = document.getElementById('prev-btn');
+        const nextBtn = document.getElementById('next-btn');
+        const showTracksCheck = document.getElementById('show-tracks-check');
+        const uiContainer = document.getElementById('ui-container');
+        const toggleMenuBtn = document.getElementById('toggle-menu-btn');
+
+        // Graph Controls
+        const scoreSlider = document.getElementById('score-slider');
+        const valScore = document.getElementById('val-score');
+        const ptSlider = document.getElementById('pt-slider');
+        const valPt = document.getElementById('val-pt');
+        const graphColorMode = document.getElementById('graph-color-mode');
+
+        // Config Inputs
+        const cfgThickness = document.getElementById('cfg-thickness');
+        const cfgRadius = document.getElementById('cfg-radius'); // Edge Thickness
+        const valThick = document.getElementById('val-thick');
+        const valRadius = document.getElementById('val-radius');
+
+        // Raycaster
+        const raycaster = new THREE.Raycaster();
+        const mouse = new THREE.Vector2();
+        raycaster.params.Line.threshold = 0.5;
+
+        // --- Initialization ---
+        function init() {
+            scene = new THREE.Scene();
+            camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 50000);
+            camera.position.set(2000, 2000, 2000);
+
+            const container = document.getElementById('canvas-container');
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.setPixelRatio(window.devicePixelRatio);
+            renderer.setClearColor(0x111111);
+            container.appendChild(renderer.domElement);
+
+            controls = new THREE.OrbitControls(camera, renderer.domElement);
+            controls.enableDamping = true;
+
+            // Helpers
+            axesHelper = new THREE.AxesHelper(5000);
+            scene.add(axesHelper);
+
+            gridHelper = new THREE.GridHelper(10000, 20, 0x555555, 0x333333);
+            scene.add(gridHelper);
+
+            // Lights
+            const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+            scene.add(ambientLight);
+            const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
+            dirLight.position.set(1, 1, 0.5);
+            scene.add(dirLight);
+
+            scene.add(tracksGroup);
+            scene.add(graphGroup);
+
+            window.addEventListener('resize', onWindowResize, false);
+            animate();
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+            controls.update();
+            renderer.render(scene, camera);
+        }
+
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+
+        // --- Data Fetching ---
+        async function fetchEventList() {
+            try {
+                const response = await fetch('/api/events');
+                if (!response.ok) throw new Error('Failed to fetch event list');
+                const data = await response.json();
+                availableEvents = data.events;
+
+                const eventInput = document.getElementById('event-input');
+                if (availableEvents.length > 0) {
+                    eventInput.value = availableEvents[0];
+                    currentEventIndex = 0;
+                    loadEvent(availableEvents[currentEventIndex]);
+                } else {
+                    document.getElementById('loading-overlay').classList.add('hidden');
+                }
+            } catch (error) {
+                console.error(error);
+                alert("Error connecting to server");
+                document.getElementById('loading-overlay').classList.add('hidden');
+            }
+        }
+
+        async function loadEvent(eventId) {
+            try {
+                const response = await fetch(`/api/event/${eventId}`);
+                if (!response.ok) throw new Error(`Failed to load event ${eventId}`);
+                eventData = await response.json();
+
+                drawEvent(true);
+                updateUI();
+                const over = document.getElementById('loading-overlay');
+                if (over) over.remove();
+            } catch (error) {
+                console.error(error);
+                alert("Error loading data.");
+                const over = document.getElementById('loading-overlay');
+                if (over) over.remove();
+            }
+        }
+
+        // --- Main Drawing Function ---
+        function drawEvent(resetCamera = false) {
+            try {
+                const showTracks = showTracksCheck.checked;
+
+                clearGroup(tracksGroup);
+                clearGroup(graphGroup);
+
+                // Draw Graph
+                if (eventData.graph_data) {
+                    drawGraph(resetCamera);
+                }
+
+                // Draw Tracks (optional overlay)
+                if (showTracks && eventData.tracks) {
+                    const ptCut = parseFloat(ptSlider.value);
+
+                    eventData.tracks.forEach((track) => {
+                        if (track.pT !== undefined && track.pT < ptCut) return;
+                        const points = track.points.map(p => new THREE.Vector3(p.x, p.y, p.z));
+                        if (points.length >= 2) {
+                            const curve = new THREE.CatmullRomCurve3(points);
+                            const geometry = new THREE.TubeGeometry(curve, points.length * 6, TRACK_THICKNESS, 8, false);
+                            // Default to grey for background tracks
+                            const mesh = new THREE.Mesh(geometry, new THREE.MeshBasicMaterial({ color: 0x888888 }));
+                            tracksGroup.add(mesh);
+                        }
+                    });
+                }
+
+                // Auto-Focus
+                if (resetCamera) {
+                    fitCameraToScene();
+                }
+
+            } catch (e) {
+                console.error("CRITICAL DRAW ERROR:", e);
+            }
+        }
+
+        function fitCameraToScene() {
+            try {
+                const box = new THREE.Box3();
+                tracksGroup.children.forEach(mesh => box.expandByObject(mesh));
+                graphGroup.children.forEach(mesh => box.expandByObject(mesh));
+
+                if (box.isEmpty()) return;
+
+                const center = box.getCenter(new THREE.Vector3());
+                const size = box.getSize(new THREE.Vector3());
+                const maxDim = Math.max(size.x, size.y, size.z);
+                const fov = camera.fov * (Math.PI / 180);
+                let cameraZ = Math.abs(maxDim / 2 * Math.tan(fov * 2));
+
+                cameraZ *= 1.5; // Zoom out slightly
+                const direction = new THREE.Vector3(1, 1, 1).normalize();
+                const position = center.clone().add(direction.multiplyScalar(Math.max(cameraZ, 20))); // Min dist 20
+
+                camera.position.copy(position);
+                camera.lookAt(center);
+                controls.target.copy(center);
+                controls.update();
+            } catch (e) {
+                console.error("CAMERA ERROR:", e);
+            }
+        }
+
+        function clearGroup(group) {
+            while (group.children.length > 0) {
+                const obj = group.children[0];
+                group.remove(obj);
+                if (obj.geometry) obj.geometry.dispose();
+                if (obj.material) obj.material.dispose();
+            }
+        }
+
+        function updateUI() {
+            const eventInput = document.getElementById('event-input');
+            const currentId = parseInt(eventInput.value);
+            const idx = availableEvents.indexOf(currentId);
+            prevBtn.disabled = idx <= 0;
+            nextBtn.disabled = idx < 0 || idx >= availableEvents.length - 1;
+        }
+
+        // --- Event Listeners ---
+        const eventInput = document.getElementById('event-input');
+
+        function jumpToEvent() {
+            const val = parseInt(eventInput.value);
+            let idx = availableEvents.indexOf(val);
+
+            if (idx !== -1) {
+                currentEventIndex = idx;
+                loadEvent(availableEvents[currentEventIndex]);
+            } else {
+                alert(`Event ${val} not found in available list.`);
+            }
+        }
+
+        eventInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') jumpToEvent();
+        });
+
+        // Main Menu Minimizer
+        toggleMenuBtn.addEventListener('click', () => {
+            uiContainer.classList.toggle('minimized');
+            toggleMenuBtn.innerText = uiContainer.classList.contains('minimized') ? '[+]' : '[–]';
+        });
+
+        showTracksCheck.addEventListener('change', () => {
+            drawEvent(false);
+        });
+
+        // --- Configuration Input Listeners ---
+        cfgThickness.addEventListener('input', () => {
+            TRACK_THICKNESS = parseFloat(cfgThickness.value);
+            valThick.innerText = TRACK_THICKNESS;
+            drawEvent();
+        });
+
+        cfgRadius.addEventListener('input', () => {
+            RAW_HIT_RADIUS = parseFloat(cfgRadius.value);
+            valRadius.innerText = RAW_HIT_RADIUS;
+            drawEvent();
+        });
+
+        // --- Graph Mode Implementation ---
+        let graphMesh = null;
+
+        function drawGraph(resetCamera = false) {
+            const threshold = parseFloat(scoreSlider.value);
+            const ptCut = parseFloat(ptSlider.value);
+            const colorMode = graphColorMode.value;
+            const data = eventData.graph_data;
+
+            if (!data || !data.edges || data.edges.length < 2) return;
+
+            // Clear previous
+            if (graphMesh) {
+                graphGroup.remove(graphMesh);
+                graphMesh.geometry.dispose();
+                graphMesh.material.dispose();
+                graphMesh = null;
+            }
+            while (graphGroup.children.length > 0) {
+                const obj = graphGroup.children[0];
+                graphGroup.remove(obj);
+                if (obj.geometry) obj.geometry.dispose();
+                if (obj.material) obj.material.dispose();
+            }
+
+            const edges = data.edges;
+            const scores = data.scores;
+            const truth = data.truth;
+            const hits = eventData.all_tracker_hits;
+
+            if (!hits || hits.length === 0) return;
+
+            const colorTrue = new THREE.Color(0x00ff00);
+            const colorFalse = new THREE.Color(0xff0000);
+            const colorDefault = new THREE.Color(0xFFFFFF);
+
+            const getScoreColor = (score) => {
+                const c = new THREE.Color();
+                c.setHSL(0.66 * (1.0 - score), 1.0, 0.5);
+                return c;
+            };
+
+            const validIndices = [];
+            const numEdges = edges[0].length;
+
+            for (let i = 0; i < numEdges; i++) {
+                if (scores[i] < threshold) continue;
+                const idx1 = edges[0][i];
+                const idx2 = edges[1][i];
+                if (idx1 < hits.length && idx2 < hits.length) {
+                    const h1 = hits[idx1];
+                    const h2 = hits[idx2];
+                    if (h1.pT !== undefined && h1.pT < ptCut) continue;
+                    if (h2.pT !== undefined && h2.pT < ptCut) continue;
+                    validIndices.push(i);
+                }
+            }
+
+            if (validIndices.length === 0) return;
+
+            const thickness = parseFloat(cfgRadius.value) || 0.5;
+            const geometry = new THREE.CylinderGeometry(thickness, thickness, 1, 6);
+            geometry.translate(0, 0.5, 0);
+            geometry.rotateX(Math.PI / 2);
+
+            const material = new THREE.MeshBasicMaterial({ color: 0xffffff });
+            graphMesh = new THREE.InstancedMesh(geometry, material, validIndices.length);
+
+            const dummy = new THREE.Object3D();
+
+            for (let i = 0; i < validIndices.length; i++) {
+                const edgeIdx = validIndices[i];
+                const idx1 = edges[0][edgeIdx];
+                const idx2 = edges[1][edgeIdx];
+
+                const h1 = hits[idx1];
+                const h2 = hits[idx2];
+
+                const p1 = new THREE.Vector3(h1.x, h1.y, h1.z);
+                const p2 = new THREE.Vector3(h2.x, h2.y, h2.z);
+
+                const distance = p1.distanceTo(p2);
+
+                dummy.position.copy(p1);
+                dummy.lookAt(p2);
+                dummy.scale.set(1, 1, distance);
+                dummy.updateMatrix();
+
+                graphMesh.setMatrixAt(i, dummy.matrix);
+
+                // Color
+                let c;
+                if (colorMode === 'truth') {
+                    if (truth && truth.length > edgeIdx) {
+                        c = truth[edgeIdx] ? colorTrue : colorFalse;
+                    } else {
+                        c = colorDefault;
+                    }
+                } else {
+                    c = getScoreColor(scores[edgeIdx]);
+                }
+                graphMesh.setColorAt(i, c);
+            }
+
+            graphMesh.instanceMatrix.needsUpdate = true;
+            if (graphMesh.instanceColor) graphMesh.instanceColor.needsUpdate = true;
+
+            graphGroup.add(graphMesh);
+        }
+
+        // --- Event Listeners for Graph Controls ---
+        scoreSlider.addEventListener('input', (e) => {
+            valScore.innerText = e.target.value;
+            drawEvent();
+        });
+
+        ptSlider.addEventListener('input', (e) => {
+            valPt.innerText = e.target.value;
+            drawEvent();
+        });
+
+        graphColorMode.addEventListener('change', () => {
+            drawEvent();
+        });
+
+        // --- Click Interaction ---
+        window.addEventListener('mousemove', onMouseMove, false);
+
+        function onMouseMove(event) {
+            if (event.target.closest('#ui-container') || event.target.closest('#track-popup')) {
+                document.body.style.cursor = 'default';
+                return;
+            }
+
+            mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+            mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+
+            raycaster.setFromCamera(mouse, camera);
+
+            const objectsToTest = [...tracksGroup.children]; // Only tracks in Graph Mode? Graph edges aren't raycasted efficiently here yet.
+            const intersects = raycaster.intersectObjects(objectsToTest);
+
+            if (intersects.length > 0) {
+                document.body.style.cursor = 'pointer';
+            } else {
+                document.body.style.cursor = 'default';
+            }
+        }
+
+        window.addEventListener('click', onMouseClick, false);
+
+        function onMouseClick(event) {
+            if (event.target.closest('#ui-container') || event.target.closest('#track-popup')) return;
+
+            mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+            mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+
+            raycaster.setFromCamera(mouse, camera);
+
+            const objectsToTest = [...tracksGroup.children];
+            const intersects = raycaster.intersectObjects(objectsToTest);
+
+            if (intersects.length > 0) {
+                const selectedMesh = intersects[0].object;
+                const color = selectedMesh.material.color;
+
+                if (selectedMesh.userData.track) {
+                    showPopup(event.clientX, event.clientY, selectedMesh.userData.track, 'track', color);
+                }
+                // Graph edges click logic omitted for simplicity or could be added back if needed
+            } else {
+                hidePopup();
+            }
+        }
+
+        function showPopup(x, y, data, type, color) {
+            const popup = document.getElementById('track-popup');
+            const borderColor = color ? `#${color.getHexString()}` : '#00ff00';
+            popup.style.border = `1px solid ${borderColor}`;
+            popup.style.borderLeft = `4px solid ${borderColor}`;
+            popup.style.left = (x + 15) + 'px';
+            popup.style.top = (y + 15) + 'px';
+            popup.style.display = 'block';
+
+            let html = '';
+            // Only supporting tracks for now in graph mode popups as graph edges are instanced meshes
+            if (type === 'track') {
+                popup.innerHTML = `
+                    <div style="margin-bottom:8px; border-bottom:1px solid #555; padding-bottom:5px;">
+                        <strong>Particle ID:</strong> ${data.particle_id}<br>
+                        <strong>PDG:</strong> ${data.pdg_id}<br>
+                        <strong>Truth pT:</strong> ${data.pT.toFixed(2)}
+                    </div>
+                `;
+            }
+        }
+
+        function hidePopup() {
+            document.getElementById('track-popup').style.display = 'none';
+        }
+
+        // --- Loading Screen ---
+        const loadingOverlay = document.getElementById('loading-overlay');
+        function showLoading() {
+            loadingOverlay.classList.remove('hidden');
+        }
+        function hideLoading() {
+            loadingOverlay.classList.add('hidden');
+        }
+        const originalLoadEvent = loadEvent;
+        loadEvent = async function (eventId) {
+            showLoading();
+            setTimeout(async () => {
+                await originalLoadEvent(eventId);
+                hideLoading();
+            }, 50);
+        };
+
+        // --- Exit Button ---
+        document.getElementById('exit-btn').addEventListener('click', async () => {
+            if (confirm("Are you sure you want to exit the application?")) {
+                try {
+                    await fetch('/shutdown', { method: 'POST' });
+                    document.body.innerHTML = '<div style="display:flex;justify-content:center;align-items:center;height:100vh;background:#222;color:#fff;font-family:sans-serif;"><h1>Application Stopped. You can close this tab.</h1></div>';
+                } catch (e) {
+                    console.error("Error shutting down:", e);
+                }
+            }
+        });
+
+        // --- Grid & Axes Toggle ---
+        document.getElementById('cfg-grid-axes').addEventListener('change', (e) => {
+            const visible = e.target.checked;
+            if (gridHelper) gridHelper.visible = visible;
+            if (axesHelper) axesHelper.visible = visible;
+        });
+
+        // --- Start ---
+        init();
+        fetchEventList();
+
+    </script>
+</body>
+
+</html>

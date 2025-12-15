@@ -6,17 +6,18 @@ from contextlib import asynccontextmanager
 import os
 import threading
 import time
-import signal # Added for consistency with shutdown endpoint
+import signal 
 from .data_processor import DataProcessor
 
 # Global DataProcessor instance
 processor = None
+SERVER_MODE = "default"
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """
     Lifespan context manager for the FastAPI app.
-    Handles startup and shutdown logic.
+    Handles startup configuration and cleanup.
     """
     # --- Startup Logic ---
     global processor
@@ -35,16 +36,21 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(lifespan=lifespan)
 
-# Serve static files (CSS, JS) if needed
-# app.mount("/static", StaticFiles(directory="static"), name="static")
-
-def set_processor(proc):
+def set_data_processor(proc):
     """
     Manually set the DataProcessor instance.
     Used when running from the Python API.
     """
     global processor
     processor = proc
+
+def set_server_mode(mode: str):
+    """
+    Set the server mode ("default" or "graph").
+    Determines which HTML template is served.
+    """
+    global SERVER_MODE
+    SERVER_MODE = mode
 
 def run_server(host="127.0.0.1", port=8000):
     """
@@ -56,12 +62,14 @@ def run_server(host="127.0.0.1", port=8000):
 @app.get("/", response_class=HTMLResponse)
 async def read_root():
     """
-    Serve the main application page (index.html).
+    Serve the main application page.
     """
-    template_path = Path(__file__).parent / "templates" / "index.html"
+    global SERVER_MODE
+    filename = "graph_index.html" if SERVER_MODE == "graph" else "index.html"
+    template_path = Path(__file__).parent / "templates" / filename
     if template_path.exists():
         return template_path.read_text()
-    return "<h1>hep-viz: Template not found</h1>"
+    return f"<h1>hep-viz: Template {filename} not found</h1>"
 
 @app.get("/api/events")
 async def get_events():

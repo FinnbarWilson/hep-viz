@@ -1,170 +1,174 @@
 # hep-viz
 
-**A local visualizer for High Energy Physics (HEP) data.**
+**hep-viz** is a lightweight, local 3D event visualizer designed specifically for the new [ColliderML](https://huggingface.co/datasets/CERN/ColliderML-Release-1) datasets. It provides an interactive interface to explore High Energy Physics (HEP) events, visualize particle tracks, calorimeter hits, and inspect Graph Neural Network (GNN) outputs such as edge scores and truth labels.
 
-`hep-viz` is a lightweight, high-performance tool designed to visualize high-dimensional particle tracking and calorimeter data directly from your local machine or Python environment. It bridges the gap between massive local datasets and fluid web-based visualization.
+![hep-viz_event](Images/hep-viz_event.png)
 
-## Features
-
-*   **🚀 Local & Fast**: Runs a local web server to stream data on demand—no cloud upload required.
-*   **🐍 Python API**: Seamlessly integrates with Jupyter Notebooks and Python scripts.
-*   **💻 CLI Support**: Quickly visualize datasets from your terminal.
-*   **✨ 3D Visualization**: Interactive 3D view of particles, tracks, and calorimeter hits.
-*   **📂 Parquet Support**: Optimized for reading large datasets stored in Parquet format.
+It is built for researchers and developers working with ColliderML data, supporting both standard event visualization and graph-based GNN inspection.
 
 ## Installation
 
-Requires Python 3.8+.
-
-### Option 1: Install from PyPI 
+### pip
+You can install `hep-viz` directly from PyPI:
 
 ```bash
 pip install hep-viz
 ```
 
-### Option 2: Install from Conda
+### From Source
+```bash
+git clone https://github.com/your-username/hep-viz.git
+cd hep-viz
+pip install .
+```
+
+### Conda
 
 ```bash
 conda install finnbarwilson::hep-viz
 ```
 
-### Option 3: Install from Source
+## How to Use
 
-```bash
-git clone https://github.com/FinnbarWilson/hep-viz.git
-cd hep-viz
-pip install .
-```
-
-## Usage
+`hep-viz` can be used either through its Command Line Interface (CLI) for quick file inspection or via its Python API for integration into notebooks and scripts.
 
 ### 1. Command Line Interface (CLI)
 
-Visualize a directory containing your Parquet data files:
+The CLI is perfect for viewing data stored in local directories (e.g., Parquet files).
 
 ```bash
 hep-viz view /path/to/data/directory
 ```
 
 **Options:**
-*   `--port <int>`: Specify the port to run the server on (default: `8000`).
-*   `--no-browser`: Prevent the browser from opening automatically.
+- `--port <int>`: Specify the port to run the server on (default: `8000`).
+- `--browser / --no-browser`: control whether the browser opens automatically.
+
+#### SSH Port Forwarding
+If you are running `hep-viz` on a remote server via SSH, the browser cannot open automatically. You will need to forward the port to your local machine.
+
+**Standard SSH Forwarding:**
+Run this in a **new terminal** on your local machine:
+```bash
+ssh -L 8000:localhost:8000 user@remote-host
+```
+
+**Nested SSH Forwarding (SSH inside SSH):**
+If you are connected to a jump host (login node) and then to a compute node:
+
+1.  **On your local machine:** Forward port 8000 to the login node.
+    ```bash
+    ssh -L 8000:localhost:8000 user@login-node
+    ```
+2.  **On the login node:** Forward port 8000 to the compute node where `hep-viz` is running.
+    ```bash
+    ssh -L 8000:localhost:8000 user@compute-node
+    ```
+3.  Open `http://localhost:8000` in your local browser.
 
 ### 2. Python API
 
-Use `hep-viz` directly within your Python scripts or Jupyter Notebooks. This is perfect for visualizing in-memory data (e.g., from Hugging Face Datasets).
+You can use `hep-viz` directly within your Python scripts.
 
-**Example with Hugging Face Datasets:**
+#### Standard Event Visualization (`view`)
+
+Pass a dictionary where each key is a **list of dictionaries** (records) or a **Hugging Face Dataset**.
 
 ```python
 import hep_viz
-from datasets import load_dataset
 
-# Load a compatible dataset (e.g., OpenDataDetector)
-dataset = load_dataset("OpenDataDetector/ColliderML_higgs_pu0")
+# Data is a dictionary of lists (records) or Datasets
+event_data = {
+    "particles": [
+        {"event_id": 0, "particle_id": 1, "pdg_id": 11, ...}, # Event 0
+        {"event_id": 1, "particle_id": 1, "pdg_id": 13, ...}  # Event 1
+    ],
+    "tracker_hits": [
+        {"event_id": 0, "x": 10.1, "y": 20.2, "z": 30.3, "particle_id": 1},
+        ...
+    ],
+    "calo_hits": [ ... ],
+    
+    # Standard Reconstruction Tracks
+    "tracks": [
+        {
+            "event_id": 0,
+            "track_id": 1,
+            "majority_particle_id": 1,  # CRITICAL: Links track to Truth Particle
+            "d0": 0.1, 
+            "z0": 1.2
+        },
+        ...
+    ]
+}
 
-# Launches the server and opens the visualization
-hep_viz.view(dataset)
+# Launch the visualizer
+hep_viz.view(event_data, port=8000)
 ```
 
-**Example with Custom Dictionary:**
+#### Graph/GNN Visualization (`view_graph`)
+Use this for visualizing GNN outputs (edges and scores).
 
 ```python
 import hep_viz
 
-# Data should be a dictionary of lists
+hep_viz.view_graph(
+    hits=hits_df,       # DataFrame/Dict with x, y, z
+    edges=edges_array,  # 2xN array of indices
+    scores=scores_array, # Score per edge
+    truth=truth_array,   # (Optional) Truth label per edge
+    port=8001
+)
+```
+
+## Input Data Requirements
+
+`hep-viz` expects key names matching the **ColliderML** schema.
+
+### Standard Inputs
+- `particles`: List of particle dictionaries. Must contain `event_id`, `particle_id`, `pdg_id`.
+- `tracker_hits`: List of hit dictionaries. Must contain `event_id`, `x`, `y`, `z`, `particle_id`.
+    - **Note:** `hep-viz` builds the 3D track visualization by grouping these hits by `particle_id`.
+- `calo_hits`: List of calorimeter hit dictionaries. Must contain `event_id`, `energy`, `x`, `y`, `z`.
+
+### Track Inputs (Reconstruction)
+To visualize reconstruction performance, you provide a `tracks` list. `hep-viz` uses this to annotate the truth tracks (e.g., highlighting which particles were successfully reconstructed).
+
+*   `event_id`: ID of the event this track belongs to.
+*   `majority_particle_id`: **(Required)** The `particle_id` of the truth particle this track matches. This is used to link your reconstructed track to the visual truth track.
+*   Optional metadata: `d0`, `z0`, `phi`, `theta`, `qop`.
+
+### Comparing Reconstruction Models
+`hep-viz` allows you to compare multiple reconstruction algorithms by seeing which truth particles they successfully recovered.
+
+**Rule:** Any key in your data dictionary that starts with `tracks` will be treated as a reconstruction collection.
+
+**Example:**
+
+```python
 data = {
-    "particles": [...],
-    "tracks": [...],
-    "tracker_hits": [...],
-    "calo_hits": [...]
+    'particles': ...,
+    'tracker_hits': ...,
+    
+    'tracks': standard_tracks_list,       # e.g. Baseline
+    'tracks_gnn': my_gnn_tracks_list,     # Your Custom Model
+    'tracks_ckf': ckf_tracks_list         # Another Model
 }
 
 hep_viz.view(data)
 ```
 
-### 3. The Application
-
-![hep-viz_event](Images/hep-viz_event.png)
-
-Once the server starts, `hep-viz` opens an interactive 3D visualization in your browser. The interface displays:
-
-*   **Particle Tracks**: Trajectories of particles with a pt cut filter
-*   **Calorimeter Hits**: Energy deposits shown as cubes, sized by energy contribution.
-*   **Tracker Hits**: Individual detector measurements forming the reconstructed tracks.
-*   **Interactive Controls**: Rotate, zoom, and pan to explore the event from any angle.
-*   **Event Navigation**: Browse through multiple events in your dataset using the event selector.
-*   **Track Selection**: Click on any track in the 3D view to see detailed information:
-	*   **Particle Info**: PDG ID, Truth pT.
-	*   **Reconstruction Info**: d0, z0, phi, theta, qop (if available).
-	*   **Calorimeter Deposits**: Total energy and a collapsible list of individual cell contributions.
-
-
-
-## Data Format
-
-`hep-viz` expects data to be organized into four main categories. If using the CLI, these should be Parquet files in your target directory. If using the Python API, these should be keys in your dictionary.
-
-### Required Categories
-
-1.  **`particles`**: Truth-level particle information.
-    *   *Columns*: `event_id`, `particle_id`, `pdg_id`, `px`, `py`, `vx`, `vy`
-2.  **`tracks`**: Reconstructed track information (optional, or derived from hits).
-    *   *Columns*: `event_id`, `hit_ids`, `majority_particle_id`, `track_id`
-3.  **`tracker_hits`**: Individual hits in the tracker layers.
-    *   *Columns*: `event_id`, `particle_id`, `x`, `y`, `z`, `volume_id`
-4.  **`calo_hits`**: Energy deposits in the calorimeter.
-    *   *Columns*: `event_id`, `x`, `y`, `z`, `contrib_particle_ids` (list), `contrib_energies` (list)
-
-### Multi-Track Support
-
-`hep-viz` supports visualizing tracks from multiple reconstruction algorithms side-by-side.
-
-**Directory Structure:**
-To use this, simply add multiple track directories to your data folder. The folder names must start with `tracks`.
-
-```
-my_data/
-├── particles/       # Truth particles
-├── tracker_hits/    # Hits
-├── calo_hits/       # Calorimeter
-├── tracks/          # Default tracks
-├── tracks_gnn/      # Tracks from GNN algorithm
-└── tracks_ckf/      # Tracks from CKF algorithm
-```
-
-**UI Selection:**
-When you load this dataset, a dropdown menu will appear in the specific UI allowing you to switch between "tracks", "tracks_gnn", and "tracks_ckf" instantly.
+In the UI, a dropdown menu 'Reco Algorithm' will appear. Switching between options will update the visualization to show which truth particles are "Found" (colored) vs "Missed" (greyed out) by that specific algorithm.
 
 ### File Naming (CLI)
+
 For the CLI to automatically detect files, they should contain the category name (e.g., `my_particles.parquet`). You can split data across multiple files using the pattern `events<start>-<end>` (e.g., `particles.events0-999.parquet`).
 
-## Development
-
-To contribute or modify `hep-viz`:
-
-1.  **Clone the repository**:
-    ```bash
-    git clone https://github.com/yourusername/hep-viz.git
-    cd hep-viz
-    ```
-
-2.  **Install in editable mode**:
-    ```bash
-    pip install -e .
-    ```
-
-3.  **Run Tests**:
-    ```bash
-    # Install test dependencies
-    pip install pytest httpx
-    
-    # Run the test suite
-    pytest
-    ```
-
+---
 ## License
 
-This project is licensed under the [MIT License](LICENSE).
+This project is licensed under the [MIT License](https://github.com/FinnbarWilson/hep-viz/blob/main/LICENSE).
 
 Copyright (c) 2025 Finnbar Wilson
+
+Built for the ColliderML community.

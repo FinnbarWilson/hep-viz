@@ -24,10 +24,110 @@ class DataProcessor:
         self.event_index_map = {} # event_id -> {key: row_index}
 
         if isinstance(path, dict):
-            self._init_from_memory(path)
+            # Check if this is Graph Mode data (edges/scores present)
+            if 'edges' in path and 'scores' in path:
+                self._init_from_graph(path)
+            else:
+                self._init_from_memory(path)
         else:
             self.path = Path(path)
             self.load_data()
+
+    def _init_from_graph(self, data):
+        """
+        Initialize from raw graph connection data (GNN output).
+        
+        Expected keys in data:
+            - hits: DataFrame OR List of DataFrames
+            - edges: Tensor/Array OR List of arrays
+            - scores: Tensor/Array OR List of arrays
+            - truth: (Optional) Tensor/Array OR List of arrays
+        """
+        print("Initializing in Graph Mode...")
+        self.files = {}
+        self.memory_data = {}
+        self.track_sources = {}
+        self.event_index_map = {}
+        self.graph_data = {} # event_id -> {edges, scores, truth}
+
+        # Handle list vs single input
+        raw_hits = data['hits']
+        is_list = isinstance(raw_hits, list)
+        
+        # Normalize to lists
+        list_hits = raw_hits if is_list else [raw_hits]
+        list_edges = data['edges'] if is_list else [data['edges']]
+        list_scores = data['scores'] if is_list else [data['scores']]
+        
+        raw_truth = data.get('truth', None)
+        if raw_truth is None:
+             list_truth = [None] * len(list_hits)
+        else:
+             list_truth = raw_truth if is_list else [raw_truth]
+
+        all_tracker_hits = []
+        all_particles = []
+
+        for i, (hits_df, edges, scores, truth) in enumerate(zip(list_hits, list_edges, list_scores, list_truth)):
+            # 1. Process Hits
+            hits_df = hits_df.copy() # Enable modification
+            if 'event_id' not in hits_df.columns:
+                hits_df['event_id'] = i # Assign event ID based on list index
+            
+            # Ensure particle_id exists (Required for pipeline)
+            if 'particle_id' not in hits_df.columns:
+                hits_df['particle_id'] = 0
+            
+            # Append to master list
+            hits_records = hits_df.to_dict('records')
+            all_tracker_hits.extend(hits_records)
+            
+            # Particles (Auto-generate from hit IDs)
+            unique_pids = hits_df['particle_id'].unique()
+            particles_df = pd.DataFrame({'particle_id': unique_pids})
+            particles_df['event_id'] = i
+            particles_df['pdg_id'] = 0 
+            
+            if 'pT' in hits_df.columns:
+                 max_pt = hits_df.groupby('particle_id')['pT'].max()
+                 particles_df['pT'] = particles_df['particle_id'].map(max_pt)
+            else:
+                 particles_df['pT'] = 1.0
+                 
+            all_particles.extend(particles_df.to_dict('records'))
+
+            # 2. Process Graph Data
+            # Convert to numpy if tensor
+            if hasattr(edges, 'cpu'): edges = edges.cpu().numpy()
+            if hasattr(scores, 'cpu'): scores = scores.cpu().numpy()
+            if truth is not None and hasattr(truth, 'cpu'): truth = truth.cpu().numpy()
+
+            # Auto-generate Truth if missing
+            if truth is None and 'particle_id' in hits_df.columns:
+                print(f"Auto-generating truth labels for graph {i}...")
+                src, dst = edges[0], edges[1]
+                pids = hits_df['particle_id'].values
+                # Safety check for indices
+                if src.max() < len(pids) and dst.max() < len(pids):
+                    pid_src = pids[src]
+                    pid_dst = pids[dst]
+                    truth = (pid_src == pid_dst).astype(int)
+                else:
+                    print(f"Warning: Edge indices out of bounds for event {i}. Cannot auto-generate truth.")
+                    truth = np.array([]) # Empty truth if indices are bad
+
+            self.graph_data[i] = {
+                'edges': edges.tolist(), 
+                'scores': scores.tolist(),
+                'truth': truth.tolist() if truth is not None else []
+            }
+
+        self.memory_data['tracker_hits'] = all_tracker_hits
+        if all_particles:
+            self.memory_data['particles'] = all_particles
+        
+        # Call standard memory init
+        self._init_from_memory(self.memory_data)
 
     def load_data(self):
         """
@@ -37,9 +137,6 @@ class DataProcessor:
         if not self.path.exists():
             raise FileNotFoundError(f"Path {self.path} does not exist")
 
-        # Define patterns to search for
-        keys = ['particles', 'tracks', 'tracker_hits', 'calo_hits']
-        
         if self.path.is_file():
             print(f"Warning: {self.path} is a file. Expecting a directory containing the dataset components.")
             return
@@ -128,7 +225,7 @@ class DataProcessor:
             # 1. Identify Track Sources in Memory Data
             for key in self.memory_data.keys():
                 if key.startswith("tracks"):
-                    self.track_sources[key] = [] # Placeholder, not used for memory mode but key existence matters
+                    self.track_sources[key] = [] # Placeholder key existence matters
             
             # Ensure 'tracks' exists if no other sources found (or if it exists explicitly)
             if not self.track_sources and 'tracks' in self.memory_data:
@@ -142,7 +239,9 @@ class DataProcessor:
                     eid = row['event_id']
                     if eid not in self.event_index_map:
                         self.event_index_map[eid] = {}
-                    self.event_index_map[eid]['particles'] = i
+                    if 'particles' not in self.event_index_map[eid]:
+                        self.event_index_map[eid]['particles'] = []
+                    self.event_index_map[eid]['particles'].append(i)
                 
                 # Index other keys (including all track sources)
                 keys_to_index = ['tracker_hits', 'calo_hits'] + list(self.track_sources.keys())
@@ -153,7 +252,11 @@ class DataProcessor:
                             eid = row['event_id']
                             if eid not in self.event_index_map:
                                 self.event_index_map[eid] = {}
-                            self.event_index_map[eid][key] = i
+                            if key not in self.event_index_map[eid]:
+                                self.event_index_map[eid][key] = []
+                            self.event_index_map[eid][key].append(i)
+                
+                print(f"Indexing Complete. Map keys: {list(self.event_index_map.keys())}")
             except Exception as e:
                 print(f"Error indexing memory data: {e}")
 
@@ -223,14 +326,14 @@ class DataProcessor:
     def process_event(self, event_id: str, track_source: str = "tracks"):
         """
         Load and process data for a specific event ID.
+
         Args:
             event_id (str): The event ID.
             track_source (str): The specific track source key to load (e.g. 'tracks', 'tracks_algo').
                                 Defaults to 'tracks'.
-        """
-        """
-        Load and process data for a specific event ID.
-        Returns a dictionary with 'tracks', 'calo_hits', 'all_tracker_hits', and 'metadata'.
+
+        Returns:
+            dict: A dictionary with 'tracks', 'calo_hits', 'all_tracker_hits', and 'metadata'.
         """
         try:
             n = int(event_id)
@@ -248,30 +351,36 @@ class DataProcessor:
             if 'particles' not in idx_map:
                 return {"error": "No particle data for this event"}
             
-            p_idx = idx_map['particles']
-            p_data = self.memory_data['particles'][p_idx]
+            p_idxs = idx_map['particles']
+            # Ensure list
+            if not isinstance(p_idxs, list): p_idxs = [p_idxs]
+            p_data = [self.memory_data['particles'][i] for i in p_idxs]
             particles = pd.DataFrame(p_data)
             
             # Tracker Hits
             tracker_hits = pd.DataFrame()
             if 'tracker_hits' in idx_map:
-                th_idx = idx_map['tracker_hits']
-                th_data = self.memory_data['tracker_hits'][th_idx]
+                th_idxs = idx_map['tracker_hits']
+                if not isinstance(th_idxs, list): th_idxs = [th_idxs]
+                th_data = [self.memory_data['tracker_hits'][i] for i in th_idxs]
                 tracker_hits = pd.DataFrame(th_data)
                 
             # Calo Hits
             calo_hits = pd.DataFrame()
             if 'calo_hits' in idx_map:
-                ch_idx = idx_map['calo_hits']
-                ch_data = self.memory_data['calo_hits'][ch_idx]
+                ch_idxs = idx_map['calo_hits']
+                if not isinstance(ch_idxs, list): ch_idxs = [ch_idxs]
+                ch_data = [self.memory_data['calo_hits'][i] for i in ch_idxs]
                 calo_hits = pd.DataFrame(ch_data)
 
             # Reco Tracks
             tracks_df = pd.DataFrame()
             if track_source in idx_map:
-                t_idx = idx_map[track_source]
-                t_data = self.memory_data[track_source][t_idx]
+                t_idxs = idx_map[track_source]
+                if not isinstance(t_idxs, list): t_idxs = [t_idxs]
+                t_data = [self.memory_data[track_source][i] for i in t_idxs]
                 tracks_df = pd.DataFrame(t_data)
+
 
         else:
             # --- Load from Files ---
@@ -339,25 +448,22 @@ class DataProcessor:
                 calo_hits = calo_hits.reset_index().rename(columns={'index': 'HIT_ID'})
              
              # Explode list columns (e.g. contrib_particle_ids)
-             # This is necessary because a single calo hit can have contributions from multiple particles.
              cols_to_explode = ['contrib_particle_ids', 'contrib_energies', 'contrib_times']
              
              # Check which columns are actually lists and present
              actual_explode_cols = []
              for col in cols_to_explode:
                  if col in calo_hits.columns:
-                     # Check first non-null value to see if it's a list
                      sample = calo_hits[col].dropna().iloc[0] if not calo_hits[col].dropna().empty else None
                      if isinstance(sample, (list, np.ndarray)):
                          actual_explode_cols.append(col)
              
              if actual_explode_cols:
                  try:
-                     # Explode all list columns simultaneously to avoid Cartesian product
+                     # Explode all list columns simultaneously
                      calo_hits = calo_hits.explode(actual_explode_cols)
                  except ValueError as e:
-                     # Fallback for older pandas or mismatched lengths
-                     print(f"Warning: Simultaneous explode failed ({e}). Falling back to sequential (may cause duplicates).")
+                     print(f"Warning: Simultaneous explode failed ({e}). Falling back to sequential.")
                      for col in actual_explode_cols:
                          calo_hits = calo_hits.explode(col)
 
@@ -377,7 +483,8 @@ class DataProcessor:
             particles['py'] = pd.to_numeric(particles['py'], errors='coerce')
             particles['pT'] = np.sqrt(particles['px']**2 + particles['py']**2)
         else:
-            particles['pT'] = 0.0
+             if 'pT' not in particles.columns:
+                 particles['pT'] = 0.0
         
         # Get particle IDs to match
         particles_id = particles["particle_id"].unique()
@@ -399,6 +506,11 @@ class DataProcessor:
             
             # Check for volume_id
             cols_to_keep = ['x', 'y', 'z', 'pT', 'pdg_id', 'particle_id']
+            if 'HIT_ID' in filtered_tracker_hits.columns:
+                cols_to_keep.append('HIT_ID')
+            elif 'hit_id' in filtered_tracker_hits.columns:
+                cols_to_keep.append('hit_id')
+
             if 'volume_id' in filtered_tracker_hits.columns:
                 cols_to_keep.append('volume_id')
                 has_volumes = True
@@ -422,6 +534,13 @@ class DataProcessor:
                 points = group_of_hits[cols].to_dict(orient='records')
                 
                 if len(points) > 1:
+                    # Collect hit_ids for graph generation
+                    hit_ids_list = []
+                    if 'hit_id' in group_of_hits.columns:
+                        hit_ids_list = group_of_hits['hit_id'].tolist()
+                    elif 'HIT_ID' in group_of_hits.columns:
+                        hit_ids_list = group_of_hits['HIT_ID'].tolist()
+
                     # A. Find Matching Reco Track
                     track_info = {
                         'd0': 0.0, 'z0': 0.0, 'phi': 0.0, 'theta': 0.0, 'qop': 0.0,
@@ -429,33 +548,52 @@ class DataProcessor:
                     }
                     
                     if not tracks_df.empty and 'majority_particle_id' in tracks_df.columns:
-                        reco_track = tracks_df[tracks_df['majority_particle_id'] == particle_id]
-                        if not reco_track.empty:
-                            row = reco_track.iloc[0]
-                            track_info = {
-                                'd0': float(row['d0']) if 'd0' in row else 0.0,
-                                'z0': float(row['z0']) if 'z0' in row else 0.0,
-                                'phi': float(row['phi']) if 'phi' in row else 0.0,
-                                'theta': float(row['theta']) if 'theta' in row else 0.0,
-                                'qop': float(row['qop']) if 'qop' in row else 0.0,
-                                'has_reco': True
-                            }
+                        # Ensure robust type matching (int vs float) by converting both to int
+                        pid_target = int(particle_id)
+                        
+                        # Handle potential NaN or float types in tracks_df
+                        try:
+                            # Create a temporary safe comparison column
+                            tracks_df['temp_maj_pid'] = pd.to_numeric(tracks_df['majority_particle_id'], errors='coerce').fillna(-1).astype(int)
+                            reco_track = tracks_df[tracks_df['temp_maj_pid'] == pid_target]
+                            
+                            if not reco_track.empty:
+                                row = reco_track.iloc[0]
+                                track_info = {
+                                    'd0': float(row['d0']) if 'd0' in row else 0.0,
+                                    'z0': float(row['z0']) if 'z0' in row else 0.0,
+                                    'phi': float(row['phi']) if 'phi' in row else 0.0,
+                                    'theta': float(row['theta']) if 'theta' in row else 0.0,
+                                    'qop': float(row['qop']) if 'qop' in row else 0.0,
+                                    'has_reco': True
+                                }
+                        except Exception as e:
+                            print(f"Error matching tracks: {e}")
 
                     # B. Get Associated Calo Contributions
                     calo_data = []
                     if not calo_hits.empty and 'contrib_particle_ids' in calo_hits.columns:
-                        associated_calo = calo_hits[calo_hits['contrib_particle_ids'] == particle_id]
-                        for _, hit in associated_calo.iterrows():
-                            calo_data.append({
-                                'energy': float(hit['contrib_energies']) if 'contrib_energies' in hit else 0.0,
-                                'detector': str(hit['detector']) if 'detector' in hit else 'Unknown',
-                                'cell_id': str(hit['cell_id']) if 'cell_id' in hit else ''
-                            })
+                         # Ensure robust type matching for calo hits too
+                        try:
+                            pid_target = int(particle_id)
+                            # Assuming contrib_particle_ids was already exploded and cast, but let's be safe
+                            # (It was cast to numeric above, but float sensitivity can be an issue)
+                            associated_calo = calo_hits[np.isclose(calo_hits['contrib_particle_ids'], pid_target, atol=0.1)] 
+                            
+                            for _, hit in associated_calo.iterrows():
+                                calo_data.append({
+                                    'energy': float(hit['contrib_energies']) if 'contrib_energies' in hit else 0.0,
+                                    'detector': str(hit['detector']) if 'detector' in hit else 'Unknown',
+                                    'cell_id': str(hit['cell_id']) if 'cell_id' in hit else ''
+                                })
+                        except Exception as e:
+                             pass
 
                     event_tracks.append({
                         'particle_id': int(particle_id),
                         'pT': float(pt_map.get(particle_id, 0)),
                         'pdg_id': int(pdg_map.get(particle_id, 0)),
+                        'hit_ids': hit_ids_list,
                         'reco_info': track_info,
                         'calo_hits': calo_data,
                         'points': points
@@ -478,23 +616,31 @@ class DataProcessor:
 
             temp_calo_hits = calo_hits[['x', 'y', 'z', 'contrib_energies', 'pT', 'pdg_id', 'contrib_particle_ids']].to_dict(orient='records')
             
-            event_calo_hits = [
-                {
-                    'x': h['x'], 'y': h['y'], 'z': h['z'],
-                    'energy': h['contrib_energies'],
-                    'pT': h['pT'],
-                    'pdg_id': int(h['pdg_id']),
-                    'particle_id': int(h['contrib_particle_ids'])
-                } for h in temp_calo_hits
-            ]
+            for hit in temp_calo_hits:
+                event_calo_hits.append({
+                    'x': hit['x'], 'y': hit['y'], 'z': hit['z'],
+                    'energy': hit['contrib_energies'],
+                    'pT': hit['pT'],
+                    'pdg_id': hit['pdg_id'],
+                    'particle_id': hit['contrib_particle_ids']
+                })
+
+        # 8. Graph Data (If available)
+        graph_response = {}
+        if hasattr(self, 'graph_data') and n in self.graph_data:
+             graph_response = self.graph_data[n]
 
         return {
-            'tracks': event_tracks,
-            'calo_hits': event_calo_hits,
-            'all_tracker_hits': all_event_tracker_hits,
-            'metadata': {
+            "metadata": {
+                "event_id": int(n),
+                "has_reco": bool(event_tracks),
                 "has_calo": bool(event_calo_hits),
-                "has_pdg": True, # Assumed for now
-                "has_volumes": has_volumes
-            }
+                "has_pdg": True, # Always true if particles exist
+                "has_volumes": has_volumes,
+                "has_graph": bool(graph_response)
+            },
+            "tracks": event_tracks,
+            "calo_hits": event_calo_hits,
+            "all_tracker_hits": all_event_tracker_hits,
+            "graph_data": graph_response
         }

@@ -15,8 +15,8 @@ def view(
     """
     Visualize HEP data from a local directory.
 
-    This command starts a local web server to visualize High Energy Physics (HEP) data
-    stored in Parquet files. It expects a directory containing subfolders or files
+    Starts a local web server to visualize High Energy Physics (HEP) data
+    stored in Parquet files. Expects a directory containing subfolders or files
     for 'particles', 'tracks', 'tracker_hits', and 'calo_hits'.
     """
     if not path.exists():
@@ -25,13 +25,12 @@ def view(
 
     typer.echo(f"Starting hep-viz server for data at: {path}")
     
-    # Pass the data path to the server process via an environment variable.
-    # The server module will read this variable during startup.
+    # Pass data path to server process via environment variable
     os.environ["HEP_VIZ_DATA_PATH"] = str(path.absolute())
 
     # Handle browser default logic
     if browser is None:
-        # Check for Common SSH environment variables
+        # Check for common SSH environment variables
         is_ssh = "SSH_CONNECTION" in os.environ or "SSH_CLIENT" in os.environ or "SSH_TTY" in os.environ
         browser = not is_ssh
         if not browser:
@@ -47,7 +46,7 @@ def view(
 
         def open_browser():
             url = f"http://127.0.0.1:{port}"
-            # Poll for server availability before opening browser
+            # Poll for server availability
             for _ in range(30): # Try for 30 seconds
                 try:
                     with socket.create_connection(("127.0.0.1", port), timeout=1):
@@ -61,7 +60,7 @@ def view(
             typer.echo(f"Server started. Opening browser at {url}")
             webbrowser.open(url)
 
-        # Run browser opener in a background thread so it doesn't block server startup
+        # Run browser opener in background thread
         threading.Thread(target=open_browser, daemon=True).start()
 
     # Start the Uvicorn server

@@ -6,6 +6,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>hep-viz: 3D Event Visualizer</title>
     <style>
+        /* --- Global Styles --- */
         body {
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Inter", "Helvetica Neue", sans-serif;
             margin: 0;
@@ -23,6 +24,7 @@
             left: 0;
         }
 
+        /* --- UI Container & Layout --- */
         #ui-container {
             position: absolute;
             top: 20px;
@@ -35,7 +37,6 @@
             border: 1px solid rgba(255, 255, 255, 0.2);
             max-width: 280px;
             max-height: 90vh;
-            /* Prevent it from going off screen */
             overflow-y: auto;
             /* Scroll if menu gets too tall */
         }
@@ -52,6 +53,7 @@
             margin-top: 15px;
         }
 
+        /* --- Controls & Inputs --- */
         button {
             font-size: 16px;
             padding: 8px 15px;
@@ -74,21 +76,34 @@
             cursor: not-allowed;
         }
 
-        #event-display {
-            font-size: 24px;
-            font-weight: bold;
-            margin-right: 10px;
+        input[type="checkbox"] {
+            margin-right: 8px;
+            vertical-align: middle;
         }
 
-        #info-box {
-            position: absolute;
-            bottom: 20px;
-            left: 20px;
-            z-index: 100;
+        input[type="range"] {
+            width: 100%;
+            margin-top: 2px;
+            margin-bottom: 8px;
+        }
+
+        select {
+            width: 100%;
+            padding: 4px;
+            background: #333;
+            color: #eee;
+            border: 1px solid #555;
+            border-radius: 4px;
+        }
+
+        label {
+            display: block;
+            margin: 5px 0;
             font-size: 14px;
-            color: #aaa;
+            cursor: pointer;
         }
 
+        /* --- UI Sections --- */
         .ui-section {
             margin-top: 15px;
             border-top: 1px solid #444;
@@ -100,29 +115,10 @@
             display: flex;
             justify-content: space-between;
             cursor: pointer;
-            /* Make headers clickable */
         }
 
         .ui-section h4:hover {
             color: #fff;
-        }
-
-        label {
-            display: block;
-            margin: 5px 0;
-            font-size: 14px;
-            cursor: pointer;
-        }
-
-        input[type="checkbox"] {
-            margin-right: 8px;
-            vertical-align: middle;
-        }
-
-        input[type="range"] {
-            width: 100%;
-            margin-top: 2px;
-            margin-bottom: 8px;
         }
 
         #toggle-menu-btn {
@@ -147,17 +143,6 @@
             display: none;
         }
 
-        #pdg-id-select {
-            width: 100%;
-            padding: 6px;
-            margin-top: 5px;
-            background-color: #333;
-            color: #eee;
-            border: 1px solid #666;
-            border-radius: 5px;
-            font-size: 14px;
-        }
-
         .config-content {
             display: none;
             padding-left: 5px;
@@ -172,7 +157,16 @@
             font-weight: bold;
         }
 
-        /* Loading Overlay */
+        /* --- Overlays & Popups --- */
+        #info-box {
+            position: absolute;
+            bottom: 20px;
+            left: 20px;
+            z-index: 100;
+            font-size: 14px;
+            color: #aaa;
+        }
+
         #loading-overlay {
             position: fixed;
             top: 0;
@@ -213,7 +207,7 @@
             display: none !important;
         }
 
-        /* Track Popup */
+        /* --- Track Popup --- */
         #track-popup {
             display: none;
             position: absolute;
@@ -258,22 +252,21 @@
     </div>
 
     <div id="track-popup"></div>
-
     <div id="canvas-container"></div>
 
     <div id="ui-container">
         <h2>hep-viz <button id="toggle-menu-btn">[–]</button></h2>
 
         <div id="ui-content">
-
             <div
                 style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 15px; background: #222; padding: 8px; border-radius: 8px;">
                 <div style="display: flex; align-items: center; gap: 8px;">
                     <span style="font-weight: bold; margin-right: 4px;">Event:</span>
                     <input type="text" id="event-input" placeholder="ID"
                         style="padding: 4px; border-radius: 4px; background: #444; color: #eee; border: 1px solid #666; width: 60px;">
-
                     <div style="display: flex; gap: 4px;">
+                        <button id="go-btn"
+                            style="padding: 4px 8px; cursor: pointer; background: #2980b9; border: 1px solid #3498db;">Go</button>
                         <button id="prev-btn" disabled style="padding: 4px 10px; cursor: pointer;">&lt;</button>
                         <button id="next-btn" disabled style="padding: 4px 10px; cursor: pointer;">&gt;</button>
                     </div>
@@ -284,10 +277,11 @@
             <span id="event-display" style="display: none;">Event: -</span>
 
             <!-- Track Source Selection -->
-            <div id="track-source-container" style="margin-bottom: 10px; display: none;">
-                <label for="track-source-select" style="font-size: 14px; color: #ccc;">Reco Algorithm:</label>
+            <div id="track-source-container" style="margin-bottom: 15px; display: block;">
+                <label for="track-source-select"
+                    style="font-size: 14px; color: #ccc; margin-bottom: 5px; display: block;">Reco Algorithm:</label>
                 <select id="track-source-select"
-                    style="width: 100%; padding: 4px; background: #333; color: #eee; border: 1px solid #555;">
+                    style="width: 100%; padding: 6px; background: #333; color: #eee; border: 1px solid #555; border-radius: 4px;">
                     <!-- Populated via JS -->
                 </select>
             </div>
@@ -335,17 +329,19 @@
                     <label>Track Thickness: <span id="val-thick">3</span></label>
                     <input type="range" id="cfg-thickness" min="1" max="10" step="0.5" value="3">
 
-                    <label id="lbl-cfg-calo">Calo Scale: <span id="val-calo">5000</span></label>
-                    <input type="range" id="cfg-calo" min="100" max="20000" step="100" value="5000">
+                    <div id="calo-controls-container">
+                        <label id="lbl-cfg-calo">Calo Scale: <span id="val-calo">5000</span></label>
+                        <input type="range" id="cfg-calo" min="100" max="20000" step="100" value="5000">
 
-                    <label id="lbl-cfg-calo-mode" style="margin-top: 5px;">Calo Scale Mode:</label>
-                    <select id="cfg-calo-mode"
-                        style="width: 100%; margin-bottom: 10px; background: #333; color: #eee; border: 1px solid #555; padding: 2px;">
-                        <option value="log">Logarithmic</option>
-                        <option value="linear">Linear</option>
-                    </select>
+                        <label id="lbl-cfg-calo-mode" style="margin-top: 5px;">Calo Scale Mode:</label>
+                        <select id="cfg-calo-mode"
+                            style="width: 100%; margin-bottom: 10px; background: #333; color: #eee; border: 1px solid #555; padding: 2px;">
+                            <option value="log">Logarithmic</option>
+                            <option value="linear">Linear</option>
+                        </select>
+                    </div>
 
-                    <label>Hit Radius: <span id="val-radius">8</span></label>
+                    <label id="radius-label">Hit Radius: <span id="val-radius">8</span></label>
                     <input type="range" id="cfg-radius" min="1" max="20" step="0.5" value="8">
 
                     <label style="margin-top: 10px; cursor: pointer;">
@@ -368,7 +364,8 @@
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
 
     <script>
-        let scene, camera, renderer, controls;
+        // --- Global Variables ---
+        let scene, camera, renderer, controls, axesHelper, gridHelper;
         let eventData = {};
         let currentEventIndex = 0;
         let availableEvents = [];
@@ -386,15 +383,13 @@
             0x00bcd4, 0xffeb3b, 0x8bc34a, 0xff9800, 0x9c27b0
         ];
 
-        // --- DYNAMIC CONFIGURATION VARIABLES ---
-
+        // --- Config Defaults ---
         let TRACK_THICKNESS = 3;        // Default thickness
         let CALO_ENERGY_SCALE = 5000;   // Default calo scale
         let RAW_HIT_RADIUS = 8;         // Default hit radius
 
-        // Geometries
+        // --- Geometries ---
         const caloGeometry = new THREE.BoxGeometry(40, 40, 40);
-        // Create hit geometry with radius 1, we will .scale it later based on config
         const rawHitGeometry = new THREE.SphereGeometry(1, 8, 6);
 
         // --- DOM Elements ---
@@ -405,8 +400,6 @@
         const rawHitCountDisplay = document.getElementById('raw-hit-count');
         const prevBtn = document.getElementById('prev-btn');
         const nextBtn = document.getElementById('next-btn');
-
-        // Main Controls
         const showTracksCheck = document.getElementById('show-tracks-check');
         const greyRecoCheck = document.getElementById('grey-reco-check');
         const showCaloCheck = document.getElementById('show-calo-check');
@@ -418,31 +411,25 @@
         const trackSourceContainer = document.getElementById('track-source-container');
         const uiContainer = document.getElementById('ui-container');
         const toggleMenuBtn = document.getElementById('toggle-menu-btn');
-
-        // Config Menu Elements
         const configHeader = document.getElementById('config-header');
         const configContent = document.getElementById('config-content');
         const configIcon = document.getElementById('config-icon');
-
-        // Config Inputs
         const cfgThickness = document.getElementById('cfg-thickness');
         const cfgCalo = document.getElementById('cfg-calo');
         const cfgRadius = document.getElementById('cfg-radius');
         const valThick = document.getElementById('val-thick');
         const valCalo = document.getElementById('val-calo');
         const valRadius = document.getElementById('val-radius');
-
-        // Labels to hide
         const lblCalo = document.getElementById('lbl-calo');
         const lblCfgCalo = document.getElementById('lbl-cfg-calo');
         const pdgContainer = document.getElementById('pdg-container');
 
-        // Raycaster
+        // --- Raycaster ---
         const raycaster = new THREE.Raycaster();
         const mouse = new THREE.Vector2();
         raycaster.params.Line.threshold = 0.5;
 
-        // 1. Initialize Scene
+        // --- Initialization ---
         function init() {
             scene = new THREE.Scene();
             camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 50000);
@@ -472,7 +459,6 @@
             dirLight.position.set(1, 1, 0.5);
             scene.add(dirLight);
 
-
             scene.add(tracksGroup);
             scene.add(caloGroup);
             scene.add(rawHitsGroup);
@@ -493,6 +479,7 @@
             renderer.setSize(window.innerWidth, window.innerHeight);
         }
 
+        // --- Data Fetching ---
         async function fetchEventList() {
             try {
                 const response = await fetch('/api/events');
@@ -517,13 +504,10 @@
                     currentTrackSource = 'tracks'; // Fallback
                 }
 
-                // No dropdown population needed for Input mode
+                // Initial UI setup
                 const eventInput = document.getElementById('event-input');
                 if (availableEvents.length > 0) {
                     eventInput.value = availableEvents[0];
-                }
-
-                if (availableEvents.length > 0) {
                     currentEventIndex = 0;
                     loadEvent(availableEvents[currentEventIndex]);
                 } else {
@@ -537,7 +521,6 @@
 
         async function loadEvent(eventId) {
             try {
-                // eventDisplay.innerText = `Loading Event ${eventId}...`; // Don't overwrite dropdown
                 const response = await fetch(`/api/event/${eventId}?track_source=${currentTrackSource}`);
                 if (!response.ok) throw new Error(`Failed to load event ${eventId}`);
                 eventData = await response.json();
@@ -582,6 +565,7 @@
             }
         }
 
+        // --- UI Population Helpers ---
         function populateVolumeList() {
             const volList = document.getElementById('volume-list');
             volList.innerHTML = '';
@@ -626,6 +610,7 @@
             });
         }
 
+        // --- Main Drawing Function ---
         function drawEvent() {
             const ptCut = parseFloat(ptSlider.value);
             const selectedPdgId = pdgIdSelect.value === 'all' ? null : parseInt(pdgIdSelect.value);
@@ -659,7 +644,6 @@
                 if (hasVolumeFilter && item.volume_id !== undefined) {
                     if (!selectedVolumes.has(item.volume_id)) return false;
                 }
-
                 return true;
             };
 
@@ -703,7 +687,6 @@
                 const geometry = new THREE.TubeGeometry(curve, segments, TRACK_THICKNESS, 8, false);
 
                 // Determine color: Grey if no reco, else particle color
-                // Find the track to check reco status
                 const originalTrack = fTracks.find(t => t.particle_id === particleId);
                 let color = getColor(particleId); // Default to particle color
 
@@ -720,36 +703,31 @@
                 if (originalTrack) {
                     mesh.userData = { track: originalTrack };
                 }
-
                 tracksGroup.add(mesh);
             };
 
-            // F. Draw Tracks (TubeGeometry)
+            // Draw Tracks
             if (showTracks) {
                 fTracks.forEach((track) => {
-                    // If volume filter is active, we need to split track into segments
+                    // Volume logic
                     if (hasVolumeFilter && track.points.length > 0 && track.points[0].volume_id !== undefined) {
                         let currentSegment = [];
-
                         for (let i = 0; i < track.points.length; i++) {
                             const p = track.points[i];
-                            // Check if point is in selected volume
                             if (selectedVolumes.has(p.volume_id)) {
                                 currentSegment.push(new THREE.Vector3(p.x, p.y, p.z));
                             } else {
-                                // End of segment
                                 if (currentSegment.length >= 2) {
                                     drawTrackSegment(currentSegment, track.particle_id);
                                 }
                                 currentSegment = [];
                             }
                         }
-                        // Draw last segment
                         if (currentSegment.length >= 2) {
                             drawTrackSegment(currentSegment, track.particle_id);
                         }
                     } else {
-                        // Draw full track (no volume filter or no volume data)
+                        // Draw full track
                         const points = track.points.map(p => new THREE.Vector3(p.x, p.y, p.z));
                         if (points.length >= 2) {
                             drawTrackSegment(points, track.particle_id);
@@ -758,13 +736,11 @@
                 });
             }
 
-            // G. Draw Calo Hits
+            // Draw Calo Hits
             if (showCalo) {
                 const scaleMode = document.getElementById('cfg-calo-mode').value;
                 fCalo.forEach((hit) => {
-                    // Color logic: Grey if not associated with a reco track
                     let color = getColor(hit.particle_id);
-
                     if (greyNonReco) {
                         if (!recoParticleIds.has(hit.particle_id)) {
                             color = 0x888888;
@@ -775,34 +751,23 @@
                     const mesh = new THREE.Mesh(caloGeometry, mat);
                     mesh.position.set(hit.x, hit.y, hit.z);
 
-                    // Use Dynamic Variable CALO_ENERGY_SCALE
                     let scale;
                     if (scaleMode === 'linear') {
-                        // Linear scaling: base scale + energy * factor
-                        // Adjust factor to be reasonable. CALO_ENERGY_SCALE is 100-20000.
-                        // Energy is typically small (GeV).
-                        // Increased scale factor by 10x as requested
                         scale = Math.max(0.1, hit.energy * (CALO_ENERGY_SCALE / 50.0));
                     } else {
-                        // Log scaling (Default)
                         scale = Math.max(0.1, Math.log10(1 + hit.energy * CALO_ENERGY_SCALE));
                     }
-
                     mesh.scale.set(scale, scale, scale);
-
-                    // Attach data for raycasting
                     mesh.userData = { caloHit: hit };
-
                     caloGroup.add(mesh);
                 });
             }
 
-            // H. Draw Raw Tracker Hits
+            // Draw Raw Tracker Hits
             if (showRawHits) {
                 fRawHits.forEach(hit => {
                     const mesh = new THREE.Mesh(rawHitGeometry, new THREE.MeshBasicMaterial({ color: getColor(hit.particle_id) }));
                     mesh.position.set(hit.x, hit.y, hit.z);
-                    // Use Dynamic Variable RAW_HIT_RADIUS to scale the base sphere (r=1)
                     mesh.scale.set(RAW_HIT_RADIUS, RAW_HIT_RADIUS, RAW_HIT_RADIUS);
                     rawHitsGroup.add(mesh);
                 });
@@ -830,8 +795,7 @@
             nextBtn.disabled = (currentEventIndex === availableEvents.length - 1);
         }
 
-        // --- EVENT LISTENERS ---
-
+        // --- Event Listeners ---
         prevBtn.addEventListener('click', () => {
             if (currentEventIndex > 0) {
                 currentEventIndex--;
@@ -849,12 +813,6 @@
 
         function jumpToEvent() {
             const val = eventInput.value;
-            // Check if input is in availableEvents (string or int matching)
-            // Ideally we check presence roughly.
-            // If strict validation is needed:
-            // const idx = availableEvents.findIndex(e => e.toString() === val);
-
-            // For flexibility, let's try to match exactly
             let idx = availableEvents.indexOf(val);
             if (idx === -1) idx = availableEvents.indexOf(parseInt(val));
 
@@ -870,6 +828,8 @@
             if (e.key === 'Enter') jumpToEvent();
         });
 
+        document.getElementById('go-btn').addEventListener('click', jumpToEvent);
+
         trackSourceSelect.addEventListener('change', (e) => {
             currentTrackSource = e.target.value;
             loadEvent(availableEvents[currentEventIndex]);
@@ -880,7 +840,6 @@
         showCaloCheck.addEventListener('change', () => drawEvent());
         showRawHitsCheck.addEventListener('change', () => drawEvent());
 
-        // Volume Select All
         document.getElementById('vol-select-all').addEventListener('change', (e) => {
             const checked = e.target.checked;
             document.querySelectorAll('.vol-checkbox').forEach(cb => {
@@ -904,21 +863,17 @@
 
         // Config Menu Collapser
         configHeader.addEventListener('click', () => {
-            configContent.classList.toggle('open'); // Toggle visibility
-            // Update Icon
+            configContent.classList.toggle('open');
             configIcon.innerText = configContent.classList.contains('open') ? '[–]' : '[+]';
         });
 
-        // --- CONFIGURATION INPUT LISTENERS ---
-
-        // 1. Thickness
+        // Config Input Listeners
         cfgThickness.addEventListener('input', () => {
             TRACK_THICKNESS = parseFloat(cfgThickness.value);
             valThick.innerText = TRACK_THICKNESS;
-            drawEvent(); // Redraw to see changes
+            drawEvent();
         });
 
-        // 2. Calo Scale
         cfgCalo.addEventListener('input', () => {
             CALO_ENERGY_SCALE = parseFloat(cfgCalo.value);
             valCalo.innerText = CALO_ENERGY_SCALE;
@@ -927,16 +882,7 @@
 
         document.getElementById('cfg-calo-mode').addEventListener('change', () => drawEvent());
 
-        // 3. Radius
-        cfgRadius.addEventListener('input', () => {
-            RAW_HIT_RADIUS = parseFloat(cfgRadius.value);
-            valRadius.innerText = RAW_HIT_RADIUS;
-            drawEvent();
-        });
-
-        // --- CLICK INTERACTION ---
-
-        // Mouse Move for Cursor Change
+        // --- Interactivity ---
         window.addEventListener('mousemove', onMouseMove, false);
 
         function onMouseMove(event) {
@@ -945,7 +891,6 @@
                 document.body.style.cursor = 'default';
                 return;
             }
-
             mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
             mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
 
@@ -965,46 +910,32 @@
         window.addEventListener('click', onMouseClick, false);
 
         function onMouseClick(event) {
-            // Ignore clicks on UI
             if (event.target.closest('#ui-container') || event.target.closest('#track-popup')) return;
 
-            // 1. Calculate mouse position in normalized device coordinates (-1 to +1)
             mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
             mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
 
-            // 2. Cast ray
             raycaster.setFromCamera(mouse, camera);
 
-            // Intersect both tracks and calo hits
             const objectsToTest = [...tracksGroup.children, ...caloGroup.children];
             const intersects = raycaster.intersectObjects(objectsToTest);
 
             if (intersects.length > 0) {
-                // Found something!
                 const selectedMesh = intersects[0].object;
                 const color = selectedMesh.material.color;
 
                 if (selectedMesh.userData.track) {
                     showPopup(event.clientX, event.clientY, selectedMesh.userData.track, 'track', color);
                 } else if (selectedMesh.userData.caloHit) {
-                    // Try to find associated track
                     const hit = selectedMesh.userData.caloHit;
-                    // We need to search in the tracksGroup children userData to find the track with same particle_id
-                    // But we have fTracks available in drawEvent scope... wait, we are in global scope here.
-                    // We need access to the current event data.
-
-                    // Better approach: Find track in eventData.tracks
                     let associatedTrack = null;
                     if (eventData.tracks) {
                         associatedTrack = eventData.tracks.find(t => t.particle_id === hit.particle_id);
                     }
 
                     if (associatedTrack) {
-                        // Show track popup but maybe indicate it was clicked via calo? 
-                        // User asked for "same information as their connected tracks"
                         showPopup(event.clientX, event.clientY, associatedTrack, 'track', color);
                     } else {
-                        // Fallback to calo info
                         showPopup(event.clientX, event.clientY, hit, 'calo', color);
                     }
                 }
@@ -1012,16 +943,23 @@
                 hidePopup();
             }
         }
+
         function showPopup(x, y, data, type, color) {
             const popup = document.getElementById('track-popup');
-            const content = document.getElementById('popup-content');
+            let borderColor = '#00ff00'; // Fallback green
 
-            // Set border color for all sides
-            const borderColor = color ? `#${color.getHexString()}` : '#00ff00';
+            if (color) {
+                if (typeof color.getHexString === 'function') {
+                    borderColor = '#' + color.getHexString();
+                } else if (typeof color === 'number') {
+                    borderColor = '#' + new THREE.Color(color).getHexString();
+                } else if (typeof color === 'string') {
+                    borderColor = color;
+                }
+            }
+
             popup.style.border = `1px solid ${borderColor}`;
-            popup.style.borderLeft = `4px solid ${borderColor}`; // Keep the thick accent on left
-
-
+            popup.style.borderLeft = `4px solid ${borderColor}`;
             popup.style.left = (x + 15) + 'px';
             popup.style.top = (y + 15) + 'px';
             popup.style.display = 'block';
@@ -1043,7 +981,6 @@
                 if (data.calo_hits && data.calo_hits.length > 0) {
                     const totalE = data.calo_hits.reduce((sum, h) => sum + h.energy, 0);
                     caloHtml += ` (Total E: ${totalE.toFixed(4)})<br>`;
-
                     caloHtml += `<span class="toggle-btn" onclick="toggleCaloList()">[Show/Hide Details]</span>`;
                     caloHtml += `<div id="popup-calo-list" class="calo-list">`;
                     data.calo_hits.forEach(h => {
@@ -1066,7 +1003,6 @@
                     </div>
                 `;
             } else if (type === 'calo') {
-                // Calo Hit Popup
                 popup.innerHTML = `
                     <div style="margin-bottom:8px; border-bottom:1px solid #555; padding-bottom:5px;">
                         <strong>Calorimeter Hit</strong>
@@ -1082,17 +1018,15 @@
         }
 
         function hidePopup() {
-            const popup = document.getElementById('track-popup');
-            popup.style.display = 'none';
+            document.getElementById('track-popup').style.display = 'none';
         }
 
-        // Global function for the onclick handler
         window.toggleCaloList = function () {
             const el = document.getElementById('popup-calo-list');
             if (el) el.classList.toggle('open');
         }
 
-        // --- LOADING SCREEN ---
+        // --- Loading Screen ---
         const loadingOverlay = document.getElementById('loading-overlay');
 
         function showLoading() {
@@ -1103,18 +1037,16 @@
             loadingOverlay.classList.add('hidden');
         }
 
-        // Override loadEvent to show loading screen
         const originalLoadEvent = loadEvent;
         loadEvent = async function (eventId) {
             showLoading();
-            // Small delay to allow UI to update
             setTimeout(async () => {
                 await originalLoadEvent(eventId);
                 hideLoading();
             }, 50);
         };
 
-        // --- EXIT APP ---
+        // --- Exit Button ---
         document.getElementById('exit-btn').addEventListener('click', async () => {
             if (confirm("Are you sure you want to exit the application?")) {
                 try {
@@ -1126,7 +1058,7 @@
             }
         });
 
-        // --- GRID & AXES TOGGLE ---
+        // --- Grid & Axes Toggle ---
         document.getElementById('cfg-grid-axes').addEventListener('change', (e) => {
             const visible = e.target.checked;
             if (gridHelper) gridHelper.visible = visible;
