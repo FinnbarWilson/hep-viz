@@ -1,5 +1,5 @@
 {% set name = "hep-viz" %}
-{% set version = "0.1.3" %}
+{% set version = "0.1.5" %}
 
 package:
   name: {{ name|lower }}
@@ -29,6 +29,7 @@ requirements:
     - numpy
     - pyarrow
     - datasets
+    - fastjet
 
 test:
   imports:
@@ -42,7 +43,7 @@ about:
   license_file: ../LICENSE
   summary: A local visualizer for High Energy Physics (HEP) data
   description: |
-    hep-viz is a lightweight, high-performance tool designed to visualize 
+    hep-viz is a lightweight, high-performance tool designed to visualise 
     high-dimensional particle tracking and calorimeter data directly from 
     your local machine or Python environment.
   dev_url: https://github.com/FinnbarWilson/hep-viz

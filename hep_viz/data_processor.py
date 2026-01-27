@@ -342,7 +342,7 @@ class DataProcessor:
             raise ValueError(f"Invalid event ID: {event_id}")
 
         if self.memory_data:
-            # --- Load from Memory ---
+            ### Load from Memory ###
             if n not in self.event_index_map:
                 return {"error": f"Event {n} not found in memory data"}
             
@@ -384,7 +384,7 @@ class DataProcessor:
 
 
         else:
-            # --- Load from Files ---
+            ### Load from Files ###
             if 'particles' not in self.files or not self.files['particles']:
                 return {"error": "No particle data found"}
 
@@ -393,12 +393,12 @@ class DataProcessor:
                 if not source_list:
                     return None
                 
-                # 1. Check ranges
+                # Check ranges
                 for f in source_list:
                     if f['start'] <= event_id <= f['end']:
                         return f['path']
                 
-                # 2. Fallback
+                # Fallback
                 for f in source_list:
                     if f['start'] == -1:
                          if len(source_list) == 1:
@@ -433,7 +433,7 @@ class DataProcessor:
             if t_path:
                 tracks_df = self._load_parquet_event(t_path, n)
 
-        # --- Common Processing ---
+        ### Common Processing ###
         
         # 1. Pre-process Tracker Hits
         if not tracker_hits.empty:
@@ -723,6 +723,7 @@ class DataProcessor:
                  cluster_seq = fastjet.ClusterSequence(reco_vectors, jet_def)
                  inclusive_jets = cluster_seq.inclusive_jets(5.0)
                  
+                 # Visulisation parameters
                  for j in inclusive_jets:
                      # Calculate max extent
                      max_extent = 0.0

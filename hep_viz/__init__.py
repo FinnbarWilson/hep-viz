@@ -1,3 +1,4 @@
+__version__ = "0.1.5"
 import os
 import threading
 import webbrowser
