@@ -22,9 +22,13 @@ dependencies = [
     "numpy",
     "pyarrow",
     "datasets",
-    "fastjet"
 ]
 requires-python = ">=3.8"
+
+[project.optional-dependencies]
+# fastjet has no wheels on some platforms (e.g. macOS/arm64), so jet
+# clustering is opt-in rather than a hard requirement.
+jets = ["fastjet"]
 
 [project.scripts]
 hep-viz = "hep_viz.cli:app"

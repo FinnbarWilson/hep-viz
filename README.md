@@ -160,6 +160,39 @@ hep_viz.view(data)
 
 In the UI, a dropdown menu 'Reco Algorithm' will appear. Switching between options will update the visualization to show which truth particles are "Found" (colored) vs "Missed" (greyed out) by that specific algorithm.
 
+## Exporting Figures (Vector)
+
+The **Export Figure** panel in the sidebar saves the current camera view as a true
+vector graphic, ready to drop into a paper or thesis.
+
+- **Formats:** `PDF` (use directly with `\includegraphics`) or `SVG` (for editing in
+  Inkscape/Illustrator).
+- **Contents:** detector objects only. The grid, axes, menus, info bar and canvas
+  background are all excluded, and the output has **no background fill**, so the
+  figure composites over any page colour.
+- **Selection:** tick which object groups to include — Tracks, Calorimeter hits,
+  Raw hits, Jets. Tracks and calo hits are on by default; the Raw hits and Jets
+  boxes follow their Display Options toggles.
+
+The export is not a screenshot. Each object is reduced back to the analytic
+primitive it was built from and projected through the camera, so tracks become
+smooth stroked curves and calorimeter cells become filled polygons — everything
+stays sharp at any zoom, and a typical event is only a few hundred kB.
+
+Since it captures the live camera, whatever you have framed on screen — including
+the current pT cut, PDG selection and volume filters — is what you get in the file.
+
+## Jet Clustering (Optional)
+
+Jet clustering requires [`fastjet`](https://pypi.org/project/fastjet/), which is an
+optional dependency because it has no prebuilt wheels on some platforms:
+
+```bash
+pip install hep-viz[jets]
+```
+
+Without it, `hep-viz` runs normally and only the "Show Jets" overlay is unavailable.
+
 ### File Naming (CLI)
 
 For the CLI to automatically detect files, they should contain the category name (e.g., `my_particles.parquet`). You can split data across multiple files using the pattern `events<start>-<end>` (e.g., `particles.events0-999.parquet`).

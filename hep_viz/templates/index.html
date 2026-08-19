@@ -361,6 +361,31 @@
                 </div>
             </div>
 
+            <div class="ui-section">
+                <h4>Export Figure</h4>
+                <div style="font-size: 12px; color: #aaa; margin-bottom: 8px;">
+                    Vector snapshot of the current camera view. Detector objects only &mdash; no grid, axes,
+                    menu or background.
+                </div>
+
+                <label for="export-format" style="font-size: 13px;">Format:</label>
+                <select id="export-format" style="margin-bottom: 8px;">
+                    <option value="pdf">PDF (vector)</option>
+                    <option value="svg">SVG (vector)</option>
+                </select>
+
+                <label style="font-size: 13px;"><input type="checkbox" id="export-tracks-check" checked> Tracks</label>
+                <label style="font-size: 13px;"><input type="checkbox" id="export-calo-check" checked> Calorimeter
+                    hits</label>
+                <label style="font-size: 13px;"><input type="checkbox" id="export-raw-check"> Raw hits</label>
+                <label style="font-size: 13px;"><input type="checkbox" id="export-jets-check"> Jets</label>
+
+                <button id="export-btn"
+                    style="background: #27ae60; color: white; border: none; padding: 8px 12px; border-radius: 4px; cursor: pointer; font-size: 14px; width: 100%; margin-top: 8px;">
+                    Capture View</button>
+                <div id="export-status" style="font-size: 11px; color: #888; margin-top: 6px; min-height: 14px;"></div>
+            </div>
+
             <button id="exit-btn"
                 style="background: #c0392b; color: white; border: none; padding: 8px 12px; border-radius: 4px; cursor: pointer; font-size: 14px; width: 100%; margin-top: 10px;">Exit
                 hep-viz</button>
@@ -1173,6 +1198,485 @@
             const visible = e.target.checked;
             if (gridHelper) gridHelper.visible = visible;
             if (axesHelper) axesHelper.visible = visible;
+        });
+
+        /* =====================================================================
+           VECTOR EXPORT
+           ---------------------------------------------------------------------
+           Produces a true vector snapshot (SVG or PDF) of the current camera
+           view containing ONLY the detector objects: tracks, calorimeter hits,
+           raw hits and jets. The grid, axes, lights, HTML menus and the canvas
+           background are all excluded, and the output has no background fill,
+           so it drops straight into a report over any page colour.
+
+           Rather than exporting the tessellated WebGL triangles (which would
+           mean ~10^5 paths for a typical event), each mesh is reduced back to
+           the analytic primitive it was built from and that primitive is
+           projected through the camera:
+
+             TubeGeometry   -> its CatmullRom centreline, as a stroked polyline
+                               whose width follows the tube radius in screen space
+             SphereGeometry -> a filled circle
+             anything else  -> the 2D convex hull of its projected vertices,
+                               i.e. the exact silhouette (correct for the calo
+                               boxes and the jet cones, which are unlit and
+                               flat-shaded so a flat polygon reproduces them)
+
+           Occlusion uses the painter's algorithm: primitives are sorted by
+           camera-space depth and drawn far-to-near. This is exact for the
+           opaque geometry in the scene.
+           ===================================================================== */
+
+        // Split long tracks into chunks of this many sampled points so that
+        // depth sorting can interleave a track with objects it passes behind.
+        const EXPORT_TRACK_CHUNK = 6;
+
+        // --- Geometry helpers ---
+
+        /** Andrew's monotone chain convex hull. Input/output are [x, y] pairs. */
+        function convexHull2D(points) {
+            if (points.length < 3) return points.slice();
+
+            const pts = points.slice().sort((a, b) => (a[0] - b[0]) || (a[1] - b[1]));
+            const cross = (o, a, b) =>
+                (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0]);
+
+            const lower = [];
+            for (const p of pts) {
+                while (lower.length >= 2 &&
+                    cross(lower[lower.length - 2], lower[lower.length - 1], p) <= 0) lower.pop();
+                lower.push(p);
+            }
+            const upper = [];
+            for (let i = pts.length - 1; i >= 0; i--) {
+                const p = pts[i];
+                while (upper.length >= 2 &&
+                    cross(upper[upper.length - 2], upper[upper.length - 1], p) <= 0) upper.pop();
+                upper.push(p);
+            }
+            lower.pop();
+            upper.pop();
+            return lower.concat(upper);
+        }
+
+        /**
+         * Build the projection context for the current camera and canvas.
+         * Everything is done in camera (view) space so that we can clip against
+         * the near plane before the perspective divide.
+         */
+        function makeProjector() {
+            const width = renderer.domElement.clientWidth || window.innerWidth;
+            const height = renderer.domElement.clientHeight || window.innerHeight;
+
+            scene.updateMatrixWorld(true);
+            camera.updateMatrixWorld(true);
+            camera.updateProjectionMatrix();
+
+            const viewMatrix = camera.matrixWorldInverse;
+            const projMatrix = camera.projectionMatrix;
+            const tanHalfFov = Math.tan((camera.fov * Math.PI / 180) / 2);
+
+            return {
+                width, height,
+                // Cameras look down -z, so points in front have viewZ < 0.
+                near: camera.near,
+                toView: (v) => v.clone().applyMatrix4(viewMatrix),
+                // View space -> pixel coordinates (y down, matching the screen).
+                viewToScreen: (v) => {
+                    const p = v.clone().applyMatrix4(projMatrix);
+                    return [(p.x * 0.5 + 0.5) * width, (-p.y * 0.5 + 0.5) * height];
+                },
+                // How many pixels one world unit spans at a given distance.
+                pxPerWorldUnit: (dist) => height / (2 * tanHalfFov * Math.max(dist, 1e-6))
+            };
+        }
+
+        /** True if a screen-space bounding box has no overlap with the canvas. */
+        function offScreen(pts, proj, pad) {
+            let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+            for (const p of pts) {
+                if (p[0] < minX) minX = p[0];
+                if (p[0] > maxX) maxX = p[0];
+                if (p[1] < minY) minY = p[1];
+                if (p[1] > maxY) maxY = p[1];
+            }
+            pad = pad || 0;
+            return maxX < -pad || minX > proj.width + pad ||
+                maxY < -pad || minY > proj.height + pad;
+        }
+
+        function materialColorHex(material) {
+            return '#' + material.color.getHexString();
+        }
+
+        function materialOpacity(material) {
+            return material.transparent ? (material.opacity !== undefined ? material.opacity : 1) : 1;
+        }
+
+        // --- Mesh -> primitive conversion ---
+
+        /**
+         * Convert a tube mesh into one or more stroked polylines.
+         * Segments crossing behind the camera are clipped against the near plane.
+         */
+        function tubeToPrimitives(mesh, proj, out) {
+            const params = mesh.geometry.parameters;
+            const curve = params.path;
+            if (!curve) return;
+
+            const samples = Math.min(Math.max(params.tubularSegments || 32, 8), 400);
+            const worldPts = curve.getPoints(samples).map(
+                p => p.clone().applyMatrix4(mesh.matrixWorld));
+
+            const viewPts = worldPts.map(proj.toView);
+            const radius = params.radius || 1;
+            const color = materialColorHex(mesh.material);
+            const opacity = materialOpacity(mesh.material);
+            const limit = -proj.near;
+
+            // Walk the polyline, breaking it wherever it crosses the near plane
+            // and flushing a primitive every EXPORT_TRACK_CHUNK points.
+            let run = [];
+            const flush = () => {
+                if (run.length < 2) { run = []; return; }
+
+                const screenPts = run.map(proj.viewToScreen);
+                if (!offScreen(screenPts, proj, 32)) {
+                    let depthSum = 0;
+                    for (const v of run) depthSum += v.z;
+                    const meanDepth = depthSum / run.length;
+
+                    out.push({
+                        kind: 'polyline',
+                        pts: screenPts,
+                        color: color,
+                        opacity: opacity,
+                        width: Math.max(0.15, 2 * radius * proj.pxPerWorldUnit(-meanDepth)),
+                        depth: meanDepth
+                    });
+                }
+                // Share the last point so consecutive chunks join seamlessly.
+                run = [run[run.length - 1]];
+            };
+
+            for (let i = 0; i < viewPts.length; i++) {
+                const cur = viewPts[i];
+                const visible = cur.z <= limit;
+
+                if (visible) {
+                    // Entering from behind the camera: insert the crossing point.
+                    if (i > 0 && viewPts[i - 1].z > limit) {
+                        const prev = viewPts[i - 1];
+                        const t = (limit - prev.z) / (cur.z - prev.z);
+                        run.push(prev.clone().lerp(cur, t));
+                    }
+                    run.push(cur);
+                    if (run.length >= EXPORT_TRACK_CHUNK) flush();
+                } else {
+                    // Leaving towards the camera: insert the crossing point, then break.
+                    if (i > 0 && viewPts[i - 1].z <= limit) {
+                        const prev = viewPts[i - 1];
+                        const t = (limit - prev.z) / (cur.z - prev.z);
+                        run.push(prev.clone().lerp(cur, t));
+                    }
+                    if (run.length >= 2) flush();
+                    run = [];
+                }
+            }
+            if (run.length >= 2) flush();
+        }
+
+        /** Convert a sphere mesh (raw hit marker) into a filled circle. */
+        function sphereToPrimitive(mesh, proj, out) {
+            const centreWorld = new THREE.Vector3().setFromMatrixPosition(mesh.matrixWorld);
+            const centreView = proj.toView(centreWorld);
+            if (centreView.z > -proj.near) return;
+
+            // Bake the mesh scale into the geometry radius.
+            const scale = mesh.getWorldScale(new THREE.Vector3());
+            const worldRadius = (mesh.geometry.parameters.radius || 1) *
+                Math.max(scale.x, scale.y, scale.z);
+
+            const [cx, cy] = proj.viewToScreen(centreView);
+            const r = worldRadius * proj.pxPerWorldUnit(-centreView.z);
+            if (r < 0.05) return;
+            if (offScreen([[cx - r, cy - r], [cx + r, cy + r]], proj, 8)) return;
+
+            out.push({
+                kind: 'circle',
+                cx: cx, cy: cy, r: r,
+                color: materialColorHex(mesh.material),
+                opacity: materialOpacity(mesh.material),
+                depth: centreView.z
+            });
+        }
+
+        /**
+         * Generic fallback: project every vertex and take the convex hull, which
+         * is the object's exact silhouette. Correct for the calo boxes and the
+         * jet cones since both use unlit flat-coloured materials.
+         */
+        function hullToPrimitive(mesh, proj, out) {
+            const position = mesh.geometry.attributes.position;
+            if (!position) return;
+
+            const v = new THREE.Vector3();
+            const screenPts = [];
+            let depthSum = 0;
+
+            for (let i = 0; i < position.count; i++) {
+                v.fromBufferAttribute(position, i).applyMatrix4(mesh.matrixWorld);
+                const vv = proj.toView(v);
+                // Any vertex behind the camera would project to nonsense, and
+                // clipping a silhouette properly is not worth the complexity, so
+                // drop the whole object (it is by then filling the screen anyway).
+                if (vv.z > -proj.near) return;
+                depthSum += vv.z;
+                screenPts.push(proj.viewToScreen(vv));
+            }
+            if (screenPts.length < 3) return;
+            if (offScreen(screenPts, proj, 8)) return;
+
+            const hull = convexHull2D(screenPts);
+            if (hull.length < 3) return;
+
+            out.push({
+                kind: 'polygon',
+                pts: hull,
+                color: materialColorHex(mesh.material),
+                opacity: materialOpacity(mesh.material),
+                depth: depthSum / position.count
+            });
+        }
+
+        /** Walk the selected object groups and build a depth-sorted primitive list. */
+        function collectExportPrimitives(proj, groups) {
+            const out = [];
+
+            groups.forEach(group => {
+                if (!group || !group.visible) return;
+                group.children.forEach(mesh => {
+                    if (!mesh.visible || !mesh.geometry || !mesh.material) return;
+
+                    const type = mesh.geometry.type;
+                    if (type === 'TubeGeometry') {
+                        tubeToPrimitives(mesh, proj, out);
+                    } else if (type === 'SphereGeometry') {
+                        sphereToPrimitive(mesh, proj, out);
+                    } else {
+                        hullToPrimitive(mesh, proj, out);
+                    }
+                });
+            });
+
+            // Painter's algorithm: most negative view z is furthest away, so
+            // ascending order draws back to front.
+            out.sort((a, b) => a.depth - b.depth);
+            return out;
+        }
+
+        // --- SVG serialisation ---
+
+        function primitivesToSVG(prims, proj) {
+            const n = (val) => (Math.round(val * 100) / 100);
+            const body = [];
+
+            for (const p of prims) {
+                const op = p.opacity < 1 ? ` opacity="${n(p.opacity)}"` : '';
+                if (p.kind === 'polyline') {
+                    const d = p.pts.map(pt => `${n(pt[0])},${n(pt[1])}`).join(' ');
+                    body.push(`<polyline points="${d}" fill="none" stroke="${p.color}" ` +
+                        `stroke-width="${n(p.width)}" stroke-linecap="round" ` +
+                        `stroke-linejoin="round"${op}/>`);
+                } else if (p.kind === 'polygon') {
+                    const d = p.pts.map(pt => `${n(pt[0])},${n(pt[1])}`).join(' ');
+                    body.push(`<polygon points="${d}" fill="${p.color}"${op}/>`);
+                } else if (p.kind === 'circle') {
+                    body.push(`<circle cx="${n(p.cx)}" cy="${n(p.cy)}" r="${n(p.r)}" ` +
+                        `fill="${p.color}"${op}/>`);
+                }
+            }
+
+            // No background rect is emitted, so the SVG is transparent.
+            return `<?xml version="1.0" encoding="UTF-8"?>\n` +
+                `<svg xmlns="http://www.w3.org/2000/svg" ` +
+                `width="${proj.width}" height="${proj.height}" ` +
+                `viewBox="0 0 ${proj.width} ${proj.height}">\n` +
+                `<g shape-rendering="geometricPrecision">\n${body.join('\n')}\n</g>\n</svg>\n`;
+        }
+
+        // --- PDF serialisation ---
+        //
+        // A minimal PDF 1.4 writer. Only what is needed here: stroked polylines,
+        // filled polygons, filled circles and constant alpha via ExtGState. Done
+        // by hand so the viewer keeps working with no extra dependency.
+
+        function hexToPdfRGB(hex) {
+            const v = parseInt(hex.slice(1), 16);
+            return [((v >> 16) & 255) / 255, ((v >> 8) & 255) / 255, (v & 255) / 255];
+        }
+
+        function primitivesToPDF(prims, proj) {
+            const W = proj.width, H = proj.height;
+            const n = (val) => (Math.round(val * 100) / 100).toString();
+            // PDF has its origin at the bottom-left; the screen has it top-left.
+            const fy = (y) => n(H - y);
+
+            // One ExtGState per distinct alpha value actually used.
+            const alphas = [];
+            for (const p of prims) {
+                const a = Math.round(p.opacity * 1000) / 1000;
+                if (alphas.indexOf(a) === -1) alphas.push(a);
+            }
+
+            const ops = ['1 J', '1 j'];
+            let curAlpha = null, curStroke = null, curFill = null, curWidth = null;
+
+            for (const p of prims) {
+                const a = Math.round(p.opacity * 1000) / 1000;
+                if (a !== curAlpha) {
+                    ops.push(`/GS${alphas.indexOf(a)} gs`);
+                    curAlpha = a;
+                }
+                const [r, g, b] = hexToPdfRGB(p.color);
+                const rgb = `${n(r)} ${n(g)} ${n(b)}`;
+
+                if (p.kind === 'polyline') {
+                    if (rgb !== curStroke) { ops.push(`${rgb} RG`); curStroke = rgb; }
+                    const w = n(p.width);
+                    if (w !== curWidth) { ops.push(`${w} w`); curWidth = w; }
+
+                    ops.push(`${n(p.pts[0][0])} ${fy(p.pts[0][1])} m`);
+                    for (let i = 1; i < p.pts.length; i++) {
+                        ops.push(`${n(p.pts[i][0])} ${fy(p.pts[i][1])} l`);
+                    }
+                    ops.push('S');
+                } else if (p.kind === 'polygon') {
+                    if (rgb !== curFill) { ops.push(`${rgb} rg`); curFill = rgb; }
+                    ops.push(`${n(p.pts[0][0])} ${fy(p.pts[0][1])} m`);
+                    for (let i = 1; i < p.pts.length; i++) {
+                        ops.push(`${n(p.pts[i][0])} ${fy(p.pts[i][1])} l`);
+                    }
+                    ops.push('h f');
+                } else if (p.kind === 'circle') {
+                    if (rgb !== curFill) { ops.push(`${rgb} rg`); curFill = rgb; }
+                    // Four cubic Béziers, the standard circle approximation.
+                    const k = 0.5522847498 * p.r;
+                    const cx = p.cx, cy = H - p.cy, r = p.r;
+                    ops.push(`${n(cx + r)} ${n(cy)} m`);
+                    ops.push(`${n(cx + r)} ${n(cy + k)} ${n(cx + k)} ${n(cy + r)} ${n(cx)} ${n(cy + r)} c`);
+                    ops.push(`${n(cx - k)} ${n(cy + r)} ${n(cx - r)} ${n(cy + k)} ${n(cx - r)} ${n(cy)} c`);
+                    ops.push(`${n(cx - r)} ${n(cy - k)} ${n(cx - k)} ${n(cy - r)} ${n(cx)} ${n(cy - r)} c`);
+                    ops.push(`${n(cx + k)} ${n(cy - r)} ${n(cx + r)} ${n(cy - k)} ${n(cx + r)} ${n(cy)} c`);
+                    ops.push('h f');
+                }
+            }
+
+            const content = ops.join('\n');
+
+            // --- Assemble the object tree ---
+            const gsEntries = alphas.map((a, i) => `/GS${i} ${5 + i} 0 R`).join(' ');
+            const objects = [
+                '<< /Type /Catalog /Pages 2 0 R >>',
+                '<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
+                `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${n(W)} ${n(H)}] ` +
+                `/Resources << /ExtGState << ${gsEntries} >> >> /Contents 4 0 R ` +
+                // The transparency group is what makes the page composite
+                // correctly over whatever it is placed on.
+                `/Group << /S /Transparency /CS /DeviceRGB /I true >> >>`,
+                `<< /Length ${content.length} >>\nstream\n${content}\nendstream`
+            ];
+            alphas.forEach(a => {
+                objects.push(`<< /Type /ExtGState /ca ${a} /CA ${a} >>`);
+            });
+
+            // --- Serialise with a cross-reference table ---
+            let pdf = '%PDF-1.4\n%\xE2\xE3\xCF\xD3\n';
+            const offsets = [];
+            objects.forEach((body, i) => {
+                offsets.push(pdf.length);
+                pdf += `${i + 1} 0 obj\n${body}\nendobj\n`;
+            });
+
+            const xrefOffset = pdf.length;
+            pdf += `xref\n0 ${objects.length + 1}\n`;
+            pdf += '0000000000 65535 f \n';
+            offsets.forEach(off => {
+                pdf += String(off).padStart(10, '0') + ' 00000 n \n';
+            });
+            pdf += `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\n` +
+                `startxref\n${xrefOffset}\n%%EOF\n`;
+
+            // Every character is < 256, so this is a faithful byte-for-byte
+            // encoding and the offsets above are correct.
+            const bytes = new Uint8Array(pdf.length);
+            for (let i = 0; i < pdf.length; i++) bytes[i] = pdf.charCodeAt(i) & 0xFF;
+            return bytes;
+        }
+
+        // --- Entry point ---
+
+        function downloadBlob(data, mime, filename) {
+            const blob = new Blob([data], { type: mime });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = filename;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            setTimeout(() => URL.revokeObjectURL(url), 1000);
+        }
+
+        function exportVectorView() {
+            const status = document.getElementById('export-status');
+            const format = document.getElementById('export-format').value;
+
+            const groups = [];
+            if (document.getElementById('export-tracks-check').checked) groups.push(tracksGroup);
+            if (document.getElementById('export-calo-check').checked) groups.push(caloGroup);
+            if (document.getElementById('export-raw-check').checked) groups.push(rawHitsGroup);
+            if (document.getElementById('export-jets-check').checked) groups.push(jetsGroup);
+
+            if (groups.length === 0) {
+                status.innerText = 'Nothing selected to export.';
+                return;
+            }
+
+            try {
+                const proj = makeProjector();
+                const prims = collectExportPrimitives(proj, groups);
+
+                if (prims.length === 0) {
+                    status.innerText = 'Nothing visible in the current view.';
+                    return;
+                }
+
+                const eventId = availableEvents[currentEventIndex];
+                const base = `hep-viz_event${eventId !== undefined ? eventId : ''}`;
+
+                if (format === 'svg') {
+                    downloadBlob(primitivesToSVG(prims, proj), 'image/svg+xml', base + '.svg');
+                } else {
+                    downloadBlob(primitivesToPDF(prims, proj), 'application/pdf', base + '.pdf');
+                }
+
+                status.innerText = `Saved ${prims.length} vector shapes ` +
+                    `(${proj.width}x${proj.height}).`;
+            } catch (e) {
+                console.error('Vector export failed:', e);
+                status.innerText = 'Export failed: ' + e.message;
+            }
+        }
+
+        document.getElementById('export-btn').addEventListener('click', exportVectorView);
+
+        // Keep the export toggles in step with what is actually on screen.
+        showRawHitsCheck.addEventListener('change', () => {
+            document.getElementById('export-raw-check').checked = showRawHitsCheck.checked;
+        });
+        showJetsCheck.addEventListener('change', () => {
+            document.getElementById('export-jets-check').checked = showJetsCheck.checked;
         });
 
         // --- Start ---

@@ -4,7 +4,15 @@ import pandas as pd
 import numpy as np
 import glob
 import re
-import fastjet
+
+try:
+    import fastjet
+except ImportError:
+    # Jet clustering is optional; everything except the "Show Jets" overlay
+    # works without it.
+    fastjet = None
+    print("Note: fastjet not installed - jet clustering disabled. "
+          "Install with `pip install fastjet` to enable it.")
 
 class DataProcessor:
     """
